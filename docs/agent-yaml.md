@@ -141,6 +141,40 @@ mcp_servers:
 | `max_concurrent_tasks` | int | `1` | Max tasks running simultaneously (= number of worker coroutines) |
 | `task_timeout_seconds` | int | `600` | Per-task timeout before cancellation |
 
+### `channels`
+
+Optional communication channels that connect the agent to messaging platforms. Each channel runs alongside the HTTP server and shares the same `TaskExecutor`.
+
+String values matching `${VAR}` are expanded from environment variables.
+
+**Slack (Socket Mode):**
+```yaml
+channels:
+  slack:
+    enabled: true
+    mode: socket
+    app_token: ${SLACK_APP_TOKEN}
+    bot_token: ${SLACK_BOT_TOKEN}
+    require_mention: true
+    allowed_channels: []        # empty = all channels
+    max_message_length: 3900
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `true` | Enable/disable this channel |
+| `mode` | string | `"socket"` | Connection mode (`socket`) |
+| `app_token` | string | required | Slack app-level token (`xapp-...`) |
+| `bot_token` | string | required | Slack bot token (`xoxb-...`) |
+| `require_mention` | bool | `true` | In channels, only respond to `@bot` mentions |
+| `allowed_channels` | list | `[]` | Restrict to specific Slack channel IDs (empty = all) |
+| `max_message_length` | int | `3900` | Max chars per message chunk (Slack limit is 4000) |
+
+**Session ID derivation:**
+- DMs: `slack:dm:{user_id}`
+- Channel messages: `slack:channel:{channel_id}`
+- Threaded messages: `slack:channel:{channel_id}:thread:{thread_ts}`
+
 ### `session`
 
 | Field | Type | Default | Description |

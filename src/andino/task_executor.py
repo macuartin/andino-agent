@@ -111,6 +111,7 @@ class TaskExecutor:
         self._tasks: OrderedDict[str, TaskStatus] = OrderedDict()
         self._workers: list[asyncio.Task] = []
         self._started = False
+        self._completion_events: dict[str, asyncio.Event] = {}
 
     def ensure_started(self) -> None:
         """Start worker coroutines. Safe to call multiple times."""
@@ -150,6 +151,17 @@ class TaskExecutor:
 
         return status
 
+    async def submit_and_wait(
+        self, task_id: str, prompt: str, session_id: str | None = None
+    ) -> TaskStatus:
+        """Submit a task and wait for it to complete. Used by channels."""
+        event = asyncio.Event()
+        self._completion_events[task_id] = event
+        await self.submit(task_id, prompt, session_id)
+        await event.wait()
+        self._completion_events.pop(task_id, None)
+        return self._tasks[task_id]
+
     async def _worker(self, worker_id: int) -> None:
         """Worker coroutine that consumes tasks from the queue."""
         logger.info("worker_started id=%d", worker_id)
@@ -182,6 +194,9 @@ class TaskExecutor:
             finally:
                 lock.release()
                 task_status.completed_at = datetime.now(timezone.utc).isoformat()
+                event = self._completion_events.get(item.task_id)
+                if event is not None:
+                    event.set()
                 self._queue.task_done()
 
     def get_status(self, task_id: str) -> TaskStatus | None:

@@ -2,31 +2,36 @@
 
 ## Overview
 
-Each Andino agent runs as an independent unit: one process, one HTTP server, one or more worker coroutines. No shared state between agents. No central orchestrator required.
+Each Andino agent runs as an independent unit: one process, one HTTP server, optional channels, and one or more worker coroutines. No shared state between agents. No central orchestrator required.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Agent Unit                        │
-│                                                     │
-│  agent.yaml ──> AgentConfig ──> AgentService.run()  │
-│                                                     │
-│  ┌─────────────────────────────────────────────┐    │
-│  │              FastAPI Server                  │    │
-│  │                                             │    │
-│  │  POST /task ──> asyncio.Queue (bounded)     │    │
-│  │                      │                      │    │
-│  │              N worker coroutines             │    │
-│  │                      │                      │    │
-│  │          AgentPool.get(session_id)           │    │
-│  │                      │                      │    │
-│  │      await agent.invoke_async(prompt)        │    │
-│  │          + asyncio.wait_for(timeout)         │    │
-│  │                      │                      │    │
-│  │             TaskStatus updated              │    │
-│  └─────────────────────────────────────────────┘    │
-│                                                     │
-│  GET /task/{id}  GET /tasks  GET /health  GET /info │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                       Agent Unit                          │
+│                                                          │
+│  agent.yaml ──> AgentConfig ──> AgentService.run()       │
+│                                                          │
+│  ┌──────────────┐   ┌──────────────────────────────┐     │
+│  │ HTTP Server   │   │  Channels (optional)          │    │
+│  │ POST /task ───┤   │  SlackChannel ────────────────┤    │
+│  │               │   │  (future: Telegram, etc.) ────┤    │
+│  └───────┬───────┘   └──────────────┬────────────────┘    │
+│          │                          │                     │
+│          └──────────┬───────────────┘                     │
+│                     ▼                                     │
+│          TaskExecutor (shared)                            │
+│            asyncio.Queue (bounded)                        │
+│                     │                                     │
+│             N worker coroutines                           │
+│                     │                                     │
+│         AgentPool.get(session_id)                         │
+│                     │                                     │
+│     await agent.invoke_async(prompt)                      │
+│         + asyncio.wait_for(timeout)                       │
+│                     │                                     │
+│            TaskStatus updated                             │
+│                                                          │
+│  GET /task/{id}  GET /tasks  GET /health  GET /info      │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Startup Flow
@@ -37,18 +42,23 @@ python -m andino agent.yaml
          ▼
   AgentService.from_yaml()
          │
-         ├── AgentConfig.from_yaml()     # Parse YAML, resolve system_prompt
+         ├── AgentConfig.from_yaml()     # Parse YAML, expand ${VAR}, resolve system_prompt
          ├── Set env vars                 # BYPASS_TOOL_CONSENT, etc.
-         └── create_app(config)
+         └── _run_async()
                   │
-                  ├── TaskExecutor(config)
+                  ├── TaskExecutor(config)   # shared instance
                   │        │
                   │        ├── AgentPool(config)
                   │        │        └── build_agent(config)  # stateless base agent
                   │        └── asyncio.Queue(maxsize)
                   │
-                  ├── Mount FastAPI routes
-                  └── uvicorn.run()
+                  ├── create_app(config, executor)
+                  │        └── Mount FastAPI routes
+                  │
+                  ├── load_channels(config, executor)
+                  │        └── Instantiate enabled channels (Slack, etc.)
+                  │
+                  └── asyncio.gather(server.serve(), *channels)
 ```
 
 ## Task Lifecycle
@@ -113,13 +123,16 @@ The **AgentPool** manages the cache:
 __main__.py
     └── service.py
             ├── config.py (AgentConfig)
-            └── server.py (create_app)
-                    └── task_executor.py (TaskExecutor)
-                            ├── agent_builder.py (build_agent)
-                            │       ├── model_registry.py
-                            │       ├── tool_loader.py
-                            │       └── mcp_loader.py
-                            └── config.py (AgentConfig)
+            ├── server.py (create_app)
+            │       └── task_executor.py (TaskExecutor)
+            │               ├── agent_builder.py (build_agent)
+            │               │       ├── model_registry.py
+            │               │       ├── tool_loader.py
+            │               │       └── mcp_loader.py
+            │               └── config.py (AgentConfig)
+            └── channels/ (load_channels)
+                    ├── __init__.py (BaseChannel, loader)
+                    └── slack.py (SlackChannel)
 ```
 
 No circular dependencies. Each module has a single responsibility.

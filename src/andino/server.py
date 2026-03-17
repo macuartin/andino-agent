@@ -21,9 +21,10 @@ class TaskAccepted(BaseModel):
     status: TaskState = TaskState.queued
 
 
-def create_app(config: AgentConfig) -> FastAPI:
+def create_app(config: AgentConfig, executor: TaskExecutor | None = None) -> FastAPI:
     """Create a FastAPI application for a standalone Andino agent."""
-    executor = TaskExecutor(config)
+    if executor is None:
+        executor = TaskExecutor(config)
     start_time = time.monotonic()
 
     app = FastAPI(

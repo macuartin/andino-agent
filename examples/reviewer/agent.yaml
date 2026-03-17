@@ -1,0 +1,23 @@
+name: reviewer
+version: "1.0.0"
+description: "Reviews code for quality, security, test coverage, and architecture adherence"
+
+model:
+  provider: bedrock
+  model_id: us.anthropic.claude-sonnet-4-6
+  max_tokens: 4096
+
+system_prompt: ./system_prompt.md
+
+tools:
+  - strands_tools.http_request:http_request
+  - strands_tools.file_read:file_read
+  - strands_tools.shell:shell
+
+server:
+  host: "0.0.0.0"
+  port: 8104
+
+limits:
+  max_concurrent_tasks: 1
+  task_timeout_seconds: 600

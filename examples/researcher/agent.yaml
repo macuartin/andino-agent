@@ -1,0 +1,22 @@
+name: researcher
+version: "1.0.0"
+description: "Investigates topics, analyzes feasibility, produces technical briefs"
+
+model:
+  provider: bedrock
+  model_id: us.anthropic.claude-sonnet-4-6
+  max_tokens: 4096
+
+system_prompt: ./system_prompt.md
+
+tools:
+  - strands_tools.http_request:http_request
+  - strands_tools.file_read:file_read
+
+server:
+  host: "0.0.0.0"
+  port: 8101
+
+limits:
+  max_concurrent_tasks: 1
+  task_timeout_seconds: 600

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "andino-agent"
+version = "0.1.0"
+description = "Andino Agent — standalone autonomous agent runtime"
+requires-python = ">=3.11"
+dependencies = [
+    "strands-agents>=1.0.0",
+    "strands-agents-tools>=0.2.0",
+    "mcp>=1.0.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+bedrock = ["boto3>=1.35"]
+anthropic = ["anthropic>=0.40"]
+openai = ["openai>=1.50"]
+all = ["boto3>=1.35", "anthropic>=0.40", "openai>=1.50"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/andino_sdk"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+select = ["E", "W", "F", "I", "B", "UP", "RUF"]

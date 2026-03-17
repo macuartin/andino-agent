@@ -1,0 +1,25 @@
+name: coder
+version: "1.0.0"
+description: "Implements code and tests from architecture specs"
+
+model:
+  provider: bedrock
+  model_id: us.anthropic.claude-sonnet-4-6
+  max_tokens: 4096
+
+system_prompt: ./system_prompt.md
+
+tools:
+  - strands_tools.http_request:http_request
+  - strands_tools.file_read:file_read
+  - strands_tools.file_write:file_write
+  - strands_tools.editor:editor
+  - strands_tools.shell:shell
+
+server:
+  host: "0.0.0.0"
+  port: 8103
+
+limits:
+  max_concurrent_tasks: 1
+  task_timeout_seconds: 1200

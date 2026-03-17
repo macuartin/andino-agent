@@ -171,9 +171,12 @@ channels:
 | `max_message_length` | int | `3900` | Max chars per message chunk (Slack limit is 4000) |
 
 **Session ID derivation:**
-- DMs: `slack:dm:{user_id}`
-- Channel messages: `slack:channel:{channel_id}`
-- Threaded messages: `slack:channel:{channel_id}:thread:{thread_ts}`
+
+All conversations are scoped by thread. The bot always replies inside a thread.
+- Format: `slack:{channel_id}:{thread_ts}`
+- New messages use their own `ts` as thread root
+- Replies inside an existing thread use its `thread_ts`
+- Works identically for DMs, channels, and group messages
 
 ### `session`
 

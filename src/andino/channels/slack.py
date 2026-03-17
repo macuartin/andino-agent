@@ -103,18 +103,11 @@ class SlackChannel(BaseChannel):
             await say(text=chunk, thread_ts=thread_ts)
 
     def _derive_session_id(self, event: dict) -> str:
-        channel_type = event.get("channel_type", "")
         channel_id = event.get("channel", "")
-        user_id = event.get("user", "")
-        thread_ts = event.get("thread_ts")
-
-        if channel_type == "im":
-            return f"slack:dm:{user_id}"
-
-        session = f"slack:channel:{channel_id}"
-        if thread_ts:
-            session += f":thread:{thread_ts}"
-        return session
+        # Always scope by thread: use thread_ts if replying inside a thread,
+        # otherwise use ts (the message itself becomes the thread root).
+        thread_ts = event.get("thread_ts") or event.get("ts", "")
+        return f"slack:{channel_id}:{thread_ts}"
 
     def _extract_prompt(self, event: dict) -> str:
         text = event.get("text", "")

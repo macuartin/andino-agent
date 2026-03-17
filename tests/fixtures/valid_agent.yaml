@@ -1,0 +1,21 @@
+name: test-agent
+version: "1.0.0"
+description: "Agent for testing"
+
+model:
+  provider: bedrock
+  model_id: us.anthropic.claude-sonnet-4-6
+  max_tokens: 2048
+
+system_prompt: ./system_prompt.md
+
+tools:
+  - strands_tools.http_request:http_request
+
+server:
+  host: "127.0.0.1"
+  port: 9999
+
+limits:
+  max_concurrent_tasks: 2
+  task_timeout_seconds: 30

@@ -12,6 +12,7 @@ system_prompt: ./system_prompt.md
 tools:
   - strands_tools.http_request:http_request
   - strands_tools.file_read:file_read
+  - andino.tools.jira:jira_add_comment
 
 server:
   host: "0.0.0.0"

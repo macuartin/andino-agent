@@ -7,12 +7,12 @@ Each agent is defined in a YAML file and deployed as an independent HTTP server 
 ## Quick Reference
 - **Language:** Python 3.11+
 - **Package manager:** pip + hatchling
-- **Run an agent:** `python -m andino_sdk <agent.yaml>`
+- **Run an agent:** `python -m andino <agent.yaml>`
 - **Install:** `pip install -e ".[bedrock]"` (or `anthropic`, `openai`, `all`)
 - **Lint:** `ruff check src/`
 
 ## Project Structure
-- `src/andino_sdk/` — core SDK code
+- `src/andino/` — core SDK code
 - `examples/` — sample agent configurations (researcher, architect, coder, reviewer)
 - `docs/` — documentation (architecture, API, deployment, agent.yaml reference)
 

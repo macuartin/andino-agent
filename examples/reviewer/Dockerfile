@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir /sdk[bedrock] && rm -rf /sdk
 
 COPY examples/reviewer/ .
 
-CMD ["python", "-m", "andino_sdk", "agent.yaml"]
+CMD ["python", "-m", "andino", "agent.yaml"]

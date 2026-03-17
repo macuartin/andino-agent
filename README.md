@@ -6,7 +6,7 @@ Standalone autonomous agent runtime built on [Strands Agents](https://strandsage
 
 ```bash
 pip install -e ".[bedrock]"
-python -m andino_sdk agent.yaml
+python -m andino agent.yaml
 ```
 
 The agent starts an HTTP server and accepts tasks via `POST /task`.
@@ -102,7 +102,7 @@ WORKDIR /app
 COPY andino-agent/ /sdk/
 RUN pip install --no-cache-dir /sdk[bedrock] && rm -rf /sdk
 COPY examples/researcher/ .
-CMD ["python", "-m", "andino_sdk", "agent.yaml"]
+CMD ["python", "-m", "andino", "agent.yaml"]
 ```
 
 ```bash
@@ -157,7 +157,7 @@ pip install -e ".[all]"          # All providers
 ```
 andino-agent/
   pyproject.toml
-  src/andino_sdk/
+  src/andino/
     __init__.py          # Exports: AgentConfig, AgentService
     __main__.py          # CLI entry point
     config.py            # Pydantic models for agent.yaml

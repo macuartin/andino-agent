@@ -32,7 +32,7 @@ Each Andino agent runs as an independent unit: one process, one HTTP server, one
 ## Startup Flow
 
 ```
-python -m andino_sdk agent.yaml
+python -m andino agent.yaml
          │
          ▼
   AgentService.from_yaml()

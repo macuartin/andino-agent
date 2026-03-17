@@ -8,8 +8,8 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-from andino_sdk.agent_builder import build_agent
-from andino_sdk.config import AgentConfig
+from andino.agent_builder import build_agent
+from andino.config import AgentConfig
 
 logger = logging.getLogger(__name__)
 

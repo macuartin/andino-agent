@@ -5,8 +5,8 @@ import os
 
 import uvicorn
 
-from andino_sdk.config import AgentConfig
-from andino_sdk.server import create_app
+from andino.config import AgentConfig
+from andino.server import create_app
 
 logger = logging.getLogger(__name__)
 

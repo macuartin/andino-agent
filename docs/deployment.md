@@ -7,7 +7,7 @@ cd andino-agent
 pip install -e ".[bedrock]"
 
 cd ../examples/researcher
-python -m andino_sdk agent.yaml
+python -m andino agent.yaml
 ```
 
 ## Docker
@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir /sdk[bedrock] && rm -rf /sdk
 # Copy agent config
 COPY examples/researcher/ .
 
-CMD ["python", "-m", "andino_sdk", "agent.yaml"]
+CMD ["python", "-m", "andino", "agent.yaml"]
 ```
 
 Build context must be the repo root so both `andino-agent/` and `examples/` are accessible.
@@ -171,7 +171,7 @@ WORKDIR /app
 COPY andino-agent/ /sdk/
 RUN pip install --no-cache-dir /sdk[bedrock] && rm -rf /sdk
 COPY examples/my-agent/ .
-CMD ["python", "-m", "andino_sdk", "agent.yaml"]
+CMD ["python", "-m", "andino", "agent.yaml"]
 ```
 
 5. Add to `docker-compose.agents.yml`:

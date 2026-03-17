@@ -6,8 +6,8 @@ import uuid
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from andino_sdk.config import AgentConfig
-from andino_sdk.task_executor import TaskExecutor, TaskState, TaskStatus
+from andino.config import AgentConfig
+from andino.task_executor import TaskExecutor, TaskState, TaskStatus
 
 
 class TaskRequest(BaseModel):

@@ -1,14 +1,14 @@
-"""Allow running an agent with: python -m andino_sdk agent.yaml"""
+"""Allow running an agent with: python -m andino agent.yaml"""
 from __future__ import annotations
 
 import sys
 
-from andino_sdk.service import AgentService
+from andino.service import AgentService
 
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python -m andino_sdk <agent.yaml>")
+        print("Usage: python -m andino <agent.yaml>")
         sys.exit(1)
     AgentService.from_yaml(sys.argv[1]).run()
 

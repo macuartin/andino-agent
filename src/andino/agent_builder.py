@@ -6,10 +6,10 @@ from pathlib import Path
 from strands import Agent
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 
-from andino_sdk.config import AgentConfig
-from andino_sdk.mcp_loader import load_mcp_servers
-from andino_sdk.model_registry import build_model
-from andino_sdk.tool_loader import load_tools
+from andino.config import AgentConfig
+from andino.mcp_loader import load_mcp_servers
+from andino.model_registry import build_model
+from andino.tool_loader import load_tools
 
 logger = logging.getLogger(__name__)
 

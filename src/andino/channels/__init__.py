@@ -34,6 +34,10 @@ class BaseChannel(ABC):
     async def stop(self) -> None:
         """Gracefully shut down the channel."""
 
+    def _format(self, text: str) -> str:
+        """Convert agent output to channel-native format. Override per channel."""
+        return text
+
     async def submit_and_wait(self, prompt: str, session_id: str | None = None) -> TaskStatus:
         """Submit a task and wait for completion."""
         task_id = str(uuid.uuid4())

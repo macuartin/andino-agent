@@ -14,6 +14,53 @@ from andino.task_executor import TaskExecutor
 logger = logging.getLogger(__name__)
 
 
+_CODE_BLOCK_RE = re.compile(r"```.*?\n(.*?)```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+
+
+def _md_to_mrkdwn(text: str) -> str:
+    """Convert standard markdown to Slack mrkdwn format.
+
+    Preserves code blocks and inline code, then converts bold, italic,
+    strikethrough, headings, images, and links.
+    """
+    # Extract code blocks and inline code to protect them from conversion
+    placeholders: list[str] = []
+
+    def _protect(match: re.Match) -> str:
+        placeholders.append(match.group(0))
+        return f"\x00{len(placeholders) - 1}\x00"
+
+    text = _CODE_BLOCK_RE.sub(_protect, text)
+    text = _INLINE_CODE_RE.sub(_protect, text)
+
+    # Images: ![alt](url) → <url|alt>
+    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"<\2|\1>", text)
+
+    # Links: [text](url) → <url|text>
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", text)
+
+    # Italic first: *text* (single, not bold **) → _text_
+    # Must run before bold conversion to avoid false matches
+    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"_\1_", text)
+
+    # Bold: **text** or __text__ → *text*
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+    text = re.sub(r"__(.+?)__", r"*\1*", text)
+
+    # Strikethrough: ~~text~~ → ~text~
+    text = re.sub(r"~~(.+?)~~", r"~\1~", text)
+
+    # Headings: # Text → *Text* (bold)
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"*\1*", text, flags=re.MULTILINE)
+
+    # Restore protected code
+    for i, original in enumerate(placeholders):
+        text = text.replace(f"\x00{i}\x00", original)
+
+    return text
+
+
 class SlackConfig(BaseModel):
     """Validated Slack channel configuration."""
 
@@ -99,6 +146,8 @@ class SlackChannel(BaseChannel):
             logger.exception("slack_task_failed session_id=%s", session_id)
             response_text = "An error occurred while processing your request."
 
+        response_text = self._format(response_text)
+
         for chunk in self._chunk_text(response_text, self._config.max_message_length):
             await say(text=chunk, thread_ts=thread_ts)
 
@@ -108,6 +157,10 @@ class SlackChannel(BaseChannel):
         # otherwise use ts (the message itself becomes the thread root).
         thread_ts = event.get("thread_ts") or event.get("ts", "")
         return f"slack:{channel_id}:{thread_ts}"
+
+    def _format(self, text: str) -> str:
+        """Convert standard markdown to Slack mrkdwn."""
+        return _md_to_mrkdwn(text)
 
     def _extract_prompt(self, event: dict) -> str:
         text = event.get("text", "")

@@ -2,7 +2,41 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from andino.agent_builder import build_agent
+from strands.agent.conversation_manager import (
+    NullConversationManager,
+    SlidingWindowConversationManager,
+    SummarizingConversationManager,
+)
+
+from andino.agent_builder import _build_conversation_manager, build_agent
+from andino.config import ConversationConfig
+
+
+class TestBuildConversationManager:
+    def test_default_sliding_window(self):
+        config = ConversationConfig()
+        cm = _build_conversation_manager(config)
+        assert isinstance(cm, SlidingWindowConversationManager)
+
+    def test_sliding_window_with_params(self):
+        config = ConversationConfig(manager="sliding_window", window_size=10, per_turn=True)
+        cm = _build_conversation_manager(config)
+        assert isinstance(cm, SlidingWindowConversationManager)
+
+    def test_null_manager(self):
+        config = ConversationConfig(manager="null")
+        cm = _build_conversation_manager(config)
+        assert isinstance(cm, NullConversationManager)
+
+    def test_summarizing_manager(self):
+        config = ConversationConfig(manager="summarizing", summary_ratio=0.5, preserve_recent_messages=5)
+        cm = _build_conversation_manager(config)
+        assert isinstance(cm, SummarizingConversationManager)
+
+    def test_case_insensitive(self):
+        config = ConversationConfig(manager="  Sliding_Window  ")
+        cm = _build_conversation_manager(config)
+        assert isinstance(cm, SlidingWindowConversationManager)
 
 
 class TestWorkspace:

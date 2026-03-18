@@ -41,6 +41,15 @@ class WorkspaceConfig(BaseModel):
     base_dir: str = ".workspaces"
 
 
+class ConversationConfig(BaseModel):
+    manager: str = "sliding_window"  # sliding_window | summarizing | null
+    window_size: int = 40
+    should_truncate_results: bool = True
+    per_turn: bool | int = False
+    summary_ratio: float = 0.3
+    preserve_recent_messages: int = 10
+
+
 class SessionConfig(BaseModel):
     storage_dir: str = ".sessions"
     max_pool_size: int = 20
@@ -58,6 +67,7 @@ class AgentConfig(BaseModel):
     hitl: HitlConfig = HitlConfig()
     server: ServerConfig = ServerConfig()
     limits: LimitsConfig = LimitsConfig()
+    conversation: ConversationConfig = ConversationConfig()
     workspace: WorkspaceConfig = WorkspaceConfig()
     session: SessionConfig = SessionConfig()
 

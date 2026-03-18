@@ -45,6 +45,11 @@ limits:
   max_concurrent_tasks: 1
   task_timeout_seconds: 1200
 
+conversation:
+  manager: summarizing
+  summary_ratio: 0.3
+  preserve_recent_messages: 10
+
 workspace:
   enabled: true
   base_dir: /data/workspaces
@@ -244,6 +249,40 @@ All conversations are scoped by thread. The bot always replies inside a thread.
 - New messages use their own `ts` as thread root
 - Replies inside an existing thread use its `thread_ts`
 - Works identically for DMs, channels, and group messages
+
+### `conversation`
+
+Controls how the agent manages conversation history to stay within model context limits.
+
+```yaml
+# SlidingWindow (default) — keeps last N messages
+conversation:
+  manager: sliding_window
+  window_size: 40
+  should_truncate_results: true
+  per_turn: false
+
+# Summarizing — condenses older messages instead of dropping them
+conversation:
+  manager: summarizing
+  summary_ratio: 0.3
+  preserve_recent_messages: 10
+
+# Null — no management, full history preserved
+conversation:
+  manager: "null"
+```
+
+| Field | Type | Default | Applies to | Description |
+|---|---|---|---|---|
+| `manager` | string | `"sliding_window"` | all | `sliding_window`, `summarizing`, or `null` |
+| `window_size` | int | `40` | sliding_window | Max messages to keep in history |
+| `should_truncate_results` | bool | `true` | sliding_window | Truncate large tool results to save context |
+| `per_turn` | bool \| int | `false` | sliding_window | `true` = manage before every model call; int N = every N calls |
+| `summary_ratio` | float | `0.3` | summarizing | Ratio of messages to summarize (0.1–0.8) |
+| `preserve_recent_messages` | int | `10` | summarizing | Minimum recent messages to always keep |
+
+If omitted, defaults to `SlidingWindowConversationManager` with Strands defaults.
 
 ### `workspace`
 

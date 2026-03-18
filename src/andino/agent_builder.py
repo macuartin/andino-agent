@@ -4,14 +4,40 @@ import logging
 from pathlib import Path
 
 from strands import Agent
-from strands.agent.conversation_manager import SlidingWindowConversationManager
 
-from andino.config import AgentConfig
+from andino.config import AgentConfig, ConversationConfig
 from andino.mcp_loader import load_mcp_servers
 from andino.model_registry import build_model
 from andino.tool_loader import load_tools
 
 logger = logging.getLogger(__name__)
+
+
+def _build_conversation_manager(config: ConversationConfig):
+    """Build a Strands ConversationManager from config."""
+    name = config.manager.strip().lower()
+
+    if name == "null":
+        from strands.agent.conversation_manager import NullConversationManager
+
+        return NullConversationManager()
+
+    if name == "summarizing":
+        from strands.agent.conversation_manager import SummarizingConversationManager
+
+        return SummarizingConversationManager(
+            summary_ratio=config.summary_ratio,
+            preserve_recent_messages=config.preserve_recent_messages,
+        )
+
+    # Default: sliding_window
+    from strands.agent.conversation_manager import SlidingWindowConversationManager
+
+    return SlidingWindowConversationManager(
+        window_size=config.window_size,
+        should_truncate_results=config.should_truncate_results,
+        per_turn=config.per_turn,
+    )
 
 
 def _build_tools(config: AgentConfig) -> list:
@@ -63,7 +89,7 @@ def build_agent(config: AgentConfig, session_id: str | None = None) -> Agent:
         model=model,
         tools=tools or None,
         system_prompt=system_prompt,
-        conversation_manager=SlidingWindowConversationManager(),
+        conversation_manager=_build_conversation_manager(config.conversation),
         hooks=hooks or None,
     )
 

@@ -39,7 +39,7 @@ server:
 
 hitl:
   require_approval:
-    - strands_tools.shell:shell
+    - shell
 
 limits:
   max_concurrent_tasks: 1
@@ -176,16 +176,18 @@ Human-in-the-loop (HITL) tool approval. When configured, the agent pauses before
 ```yaml
 hitl:
   require_approval:
-    - strands_tools.shell:shell
-    - strands_tools.file_write:file_write
+    - shell
+    - file_write
   approvers:
     - U12345678
     - U87654321
 ```
 
+**Important:** Use the tool's **runtime name** (e.g. `shell`, `http_request`), not the import reference (`strands_tools.shell:shell`). The runtime name is the function name registered with Strands.
+
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `require_approval` | list[string] | `[]` | Tool references that require human approval before execution |
+| `require_approval` | list[string] | `[]` | Tool runtime names that require human approval before execution |
 | `approvers` | list[string] | `[]` | User IDs authorized to approve/deny. Empty = anyone can approve |
 
 **How it works:**

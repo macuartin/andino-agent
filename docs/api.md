@@ -14,6 +14,8 @@ Without the header (or with a wrong key), the server returns `401 Unauthorized`.
 
 The `/health` endpoint is always unauthenticated — safe for load balancer health checks.
 
+See [Getting Started](getting-started.md#environment-variables) for all environment variables including `ANDINO_API_KEY`.
+
 ## POST /task
 
 Submit a task for asynchronous execution.
@@ -101,7 +103,7 @@ Get the status and result of a task.
 
 ## POST /task/{task_id}/respond
 
-Respond to a human-in-the-loop (HITL) interrupt. Only valid when a task's status is `interrupted`.
+Respond to a human-in-the-loop (HITL) interrupt. Only valid when a task's status is `interrupted`. See [HITL Guide](hitl.md) for the full workflow including Slack integration.
 
 **Request:**
 

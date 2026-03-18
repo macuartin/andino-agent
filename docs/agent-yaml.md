@@ -117,50 +117,11 @@ system_prompt: ./system_prompt.md
 
 ### `tools`
 
-List of tool references in `module.path:attribute` format. Each tool is dynamically imported at startup.
-
-```yaml
-tools:
-  - strands_tools.http_request:http_request
-  - strands_tools.shell:shell
-  - mypackage.custom_tools:my_tool
-```
-
-Supports:
-- `@tool`-decorated functions from `strands-agents-tools`
-- Legacy tools with module-level `TOOL_SPEC`
-- Custom tools from any installed package
+List of tool references. See [Tools, MCP & Skills](tools-and-skills.md) for format, supported types, and examples.
 
 ### `mcp_servers`
 
-List of MCP (Model Context Protocol) server configurations. Each entry creates an `MCPClient` that the agent can use as a tool.
-
-**stdio transport:**
-```yaml
-mcp_servers:
-  - name: github
-    transport: stdio
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-github"]
-    env:
-      GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_..."
-```
-
-**SSE transport:**
-```yaml
-mcp_servers:
-  - name: my-server
-    transport: sse
-    server_url: http://localhost:3000/sse
-```
-
-**Streamable HTTP transport:**
-```yaml
-mcp_servers:
-  - name: my-server
-    transport: streamable_http
-    server_url: http://localhost:3000/mcp
-```
+List of MCP server configurations. See [Tools, MCP & Skills](tools-and-skills.md#mcp-servers) for transports and examples.
 
 ### `server`
 
@@ -179,35 +140,7 @@ server:
 
 ### `hitl`
 
-Human-in-the-loop (HITL) tool approval. When configured, the agent pauses before executing listed tools and waits for human approval.
-
-```yaml
-hitl:
-  require_approval:
-    - shell
-    - file_write
-  approvers:
-    - U12345678
-    - U87654321
-```
-
-**Important:** Use the tool's **runtime name** (e.g. `shell`, `http_request`), not the import reference (`strands_tools.shell:shell`). The runtime name is the function name registered with Strands.
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `require_approval` | list[string] | `[]` | Tool runtime names that require human approval before execution |
-| `approvers` | list[string] | `[]` | User IDs authorized to approve/deny. Empty = anyone can approve |
-
-**How it works:**
-
-1. Agent calls a tool in the `require_approval` list
-2. Execution pauses — task status becomes `interrupted`
-3. The `interrupts` field in `TaskStatus` shows the pending approval with tool name and input
-4. A human responds via `POST /task/{task_id}/respond` (HTTP) or interactive buttons (Slack)
-5. If approved, execution continues. If denied, the tool is cancelled with a denial message
-6. On Slack, the approval buttons are replaced with a resolution status showing who approved/denied
-
-> **Finding Slack user IDs:** Open a user's profile → click the three dots menu → "Copy member ID".
+Human-in-the-loop tool approval. See [HITL Guide](hitl.md) for configuration, workflow, and Slack integration.
 
 ### `limits`
 
@@ -218,40 +151,7 @@ hitl:
 
 ### `channels`
 
-Optional communication channels that connect the agent to messaging platforms. Each channel runs alongside the HTTP server and shares the same `TaskExecutor`.
-
-String values matching `${VAR}` are expanded from environment variables.
-
-**Slack (Socket Mode):**
-```yaml
-channels:
-  slack:
-    enabled: true
-    mode: socket
-    app_token: ${SLACK_APP_TOKEN}
-    bot_token: ${SLACK_BOT_TOKEN}
-    require_mention: true
-    allowed_channels: []        # empty = all channels
-    max_message_length: 3900
-```
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | bool | `true` | Enable/disable this channel |
-| `mode` | string | `"socket"` | Connection mode (`socket`) |
-| `app_token` | string | required | Slack app-level token (`xapp-...`) |
-| `bot_token` | string | required | Slack bot token (`xoxb-...`) |
-| `require_mention` | bool | `true` | In channels, only respond to `@bot` mentions |
-| `allowed_channels` | list | `[]` | Restrict to specific Slack channel IDs (empty = all) |
-| `max_message_length` | int | `3900` | Max chars per message chunk (Slack limit is 4000) |
-
-**Session ID derivation:**
-
-All conversations are scoped by thread. The bot always replies inside a thread.
-- Format: `slack:{channel_id}:{thread_ts}`
-- New messages use their own `ts` as thread root
-- Replies inside an existing thread use its `thread_ts`
-- Works identically for DMs, channels, and group messages
+Messaging platform integrations. See [Channels](channels.md) for configuration and Slack setup.
 
 ### `conversation`
 
@@ -289,36 +189,7 @@ If omitted, defaults to `SlidingWindowConversationManager` with Strands defaults
 
 ### `skills`
 
-Modular instruction packages loaded on-demand via [Strands Skills](https://strandsagents.com/docs/user-guide/concepts/plugins/skills/). Instead of putting everything in the system prompt, skills use progressive disclosure — only their name and description are shown initially, and full instructions are loaded when the agent activates a skill.
-
-```yaml
-skills:
-  - ./skills/                    # directory with skill subdirectories
-  - ./skills/code-review/        # single skill directory (must contain SKILL.md)
-  - /shared/skills/deploy/       # absolute path
-```
-
-Each entry can be:
-- A **skill directory** containing a `SKILL.md` file → loads one skill
-- A **parent directory** with subdirectories containing `SKILL.md` → loads all skills found
-
-Relative paths are resolved against the `agent.yaml` file's directory.
-
-**Skill file format** (`SKILL.md`):
-
-```markdown
----
-name: code-review
-description: "Reviews code for bugs, style, and security issues"
----
-# Code Review Instructions
-
-When reviewing code, follow these steps:
-1. Check for bugs and logic errors
-2. Verify error handling...
-```
-
-The agent discovers available skills from their metadata and activates them by calling a built-in `skills` tool when needed.
+Modular instruction packages loaded on-demand. See [Tools, MCP & Skills](tools-and-skills.md#skills) for format, file structure, and comparison with tools.
 
 ### `workspace`
 
@@ -363,23 +234,3 @@ For example, with default ANDINO_HOME:
 - `storage_dir: /data/sessions` → `/data/sessions/` (unchanged)
 
 Override ANDINO_HOME with the `ANDINO_HOME` environment variable.
-
-## Tools vs. Skills
-
-| | **Tools** | **Skills** |
-|---|---|---|
-| **What they are** | Executable functions (`file_read`, `shell`, `http_request`) | Instruction packages (markdown) |
-| **When loaded** | Always available in the agent's context | On-demand — only metadata shown initially |
-| **What they do** | Execute a specific action | Guide the agent step-by-step through complex tasks |
-| **Defined as** | Python functions with `@tool` decorator or `TOOL_SPEC` | `SKILL.md` files with YAML frontmatter |
-| **Example** | `shell` runs a command | `code-review` teaches the agent how to review code |
-
-**Use tools when** you need the agent to *execute* something — read files, make HTTP requests, run shell commands, interact with APIs.
-
-**Use skills when** you need the agent to follow a *process* or *methodology*. A skill tells the agent *how* to do something; tools give it *what* to do it with.
-
-**Example:**
-- Tools: `shell` + `file_write` → the agent *can* run commands and write files
-- Skill: `deploy-to-staging` → step-by-step instructions for *how* to use those tools to deploy
-
-Skills **use** tools. They don't replace them.

@@ -1,62 +1,6 @@
 # Deployment
 
-## Quick Start
-
-```bash
-pip install andino-agent[bedrock]
-
-# Create a new agent
-andino init researcher
-
-# Edit the config
-vim ~/.andino/agents/researcher/agent.yaml
-
-# Add credentials
-echo "AWS_REGION=us-east-1" >> ~/.andino/agents/researcher/.env
-
-# Run
-andino run researcher
-```
-
-## CLI Reference
-
-```bash
-andino run <name>              # Run agent by name (~/.andino/agents/<name>/agent.yaml)
-andino run ./path/agent.yaml   # Run agent from a path (backward compatible)
-andino init <name>             # Scaffold a new agent in ~/.andino/agents/<name>/
-andino list                    # List agents in ~/.andino/agents/
-andino --version               # Show version
-```
-
-Options for `andino run`:
-- `--log-level debug|info|warning|error` (default: `info`)
-- `--log-file /path/to/file.log` (log to file in addition to stdout)
-
-## ANDINO_HOME
-
-All persistent data lives under `~/.andino/` (override with `ANDINO_HOME` env var):
-
-```
-~/.andino/
-├── .env                        # global secrets (AWS keys, API tokens)
-├── agents/                     # agent configurations
-│   ├── researcher/
-│   │   ├── agent.yaml
-│   │   ├── system_prompt.md
-│   │   └── .env                # agent-specific secrets
-│   └── coder/
-│       └── ...
-├── sessions/                   # conversation state
-├── workspaces/                 # agent artifacts
-└── logs/                       # log files
-```
-
-**Environment variable loading order** (later values do NOT override earlier ones):
-1. System environment variables (always take precedence)
-2. `~/.andino/agents/<name>/.env` (per-agent secrets)
-3. `~/.andino/.env` (global secrets)
-
-**Path resolution**: Relative paths in `agent.yaml` for `session.storage_dir` and `workspace.base_dir` are resolved against `ANDINO_HOME`, not the current working directory. Absolute paths are used as-is.
+For installation, CLI usage, and ANDINO_HOME setup, see [Getting Started](getting-started.md).
 
 ## Host Deployment (Bare Metal / VM)
 
@@ -196,24 +140,6 @@ docker compose -f docker-compose.agents.yml logs researcher -f
 # Rebuild after SDK changes
 docker compose -f docker-compose.agents.yml build researcher
 docker compose -f docker-compose.agents.yml up researcher -d
-```
-
-## Environment Variables
-
-Create a `.env` file with your provider credentials:
-
-```bash
-# AWS Bedrock
-AWS_ACCESS_KEY_ID=AKIA...
-AWS_SECRET_ACCESS_KEY=...
-AWS_SESSION_TOKEN=...          # if using SSO/temporary credentials
-AWS_REGION=us-east-1
-
-# Or Anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Or OpenAI
-OPENAI_API_KEY=sk-...
 ```
 
 ## Session Persistence

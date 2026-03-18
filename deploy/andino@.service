@@ -1,0 +1,35 @@
+# Andino Agent — systemd user unit template
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/andino@.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#
+# Usage:
+#   systemctl --user start andino@researcher
+#   systemctl --user enable andino@researcher   # start on login
+#   journalctl --user -u andino@researcher -f   # view logs
+#
+# The instance name (%i) maps to the agent name under ~/.andino/agents/<name>/
+
+[Unit]
+Description=Andino Agent - %i
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/andino run %i --log-level info
+Restart=on-failure
+RestartSec=5
+
+# Load secrets: global first, then per-agent overrides
+EnvironmentFile=-%h/.andino/.env
+EnvironmentFile=-%h/.andino/agents/%i/.env
+
+# Logging via journald (use journalctl --user -u andino@%i)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=andino-%i
+
+[Install]
+WantedBy=default.target

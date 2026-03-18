@@ -1,13 +1,118 @@
 # Deployment
 
+## Quick Start
+
+```bash
+pip install andino-agent[bedrock]
+
+# Create a new agent
+andino init researcher
+
+# Edit the config
+vim ~/.andino/agents/researcher/agent.yaml
+
+# Add credentials
+echo "AWS_REGION=us-east-1" >> ~/.andino/agents/researcher/.env
+
+# Run
+andino run researcher
+```
+
+## CLI Reference
+
+```bash
+andino run <name>              # Run agent by name (~/.andino/agents/<name>/agent.yaml)
+andino run ./path/agent.yaml   # Run agent from a path (backward compatible)
+andino init <name>             # Scaffold a new agent in ~/.andino/agents/<name>/
+andino list                    # List agents in ~/.andino/agents/
+andino --version               # Show version
+```
+
+Options for `andino run`:
+- `--log-level debug|info|warning|error` (default: `info`)
+- `--log-file /path/to/file.log` (log to file in addition to stdout)
+
+## ANDINO_HOME
+
+All persistent data lives under `~/.andino/` (override with `ANDINO_HOME` env var):
+
+```
+~/.andino/
+├── .env                        # global secrets (AWS keys, API tokens)
+├── agents/                     # agent configurations
+│   ├── researcher/
+│   │   ├── agent.yaml
+│   │   ├── system_prompt.md
+│   │   └── .env                # agent-specific secrets
+│   └── coder/
+│       └── ...
+├── sessions/                   # conversation state
+├── workspaces/                 # agent artifacts
+└── logs/                       # log files
+```
+
+**Environment variable loading order** (later values do NOT override earlier ones):
+1. System environment variables (always take precedence)
+2. `~/.andino/agents/<name>/.env` (per-agent secrets)
+3. `~/.andino/.env` (global secrets)
+
+**Path resolution**: Relative paths in `agent.yaml` for `session.storage_dir` and `workspace.base_dir` are resolved against `ANDINO_HOME`, not the current working directory. Absolute paths are used as-is.
+
+## Host Deployment (Bare Metal / VM)
+
+### Install
+
+```bash
+python3 -m venv ~/.local/share/andino/venv
+source ~/.local/share/andino/venv/bin/activate
+pip install andino-agent[bedrock]
+```
+
+### Create and configure an agent
+
+```bash
+andino init researcher
+vim ~/.andino/agents/researcher/agent.yaml
+vim ~/.andino/agents/researcher/.env
+```
+
+### Run with systemd (recommended)
+
+```bash
+# Install the systemd user unit
+mkdir -p ~/.config/systemd/user
+cp deploy/andino@.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+
+# Start the agent
+systemctl --user start andino@researcher
+
+# Enable on login
+systemctl --user enable andino@researcher
+
+# View logs
+journalctl --user -u andino@researcher -f
+
+# Manage
+systemctl --user status andino@researcher
+systemctl --user restart andino@researcher
+systemctl --user stop andino@researcher
+```
+
+### Enable lingering (keep running after logout)
+
+```bash
+loginctl enable-linger $USER
+```
+
+This allows user services to keep running even when you log out.
+
 ## Local Development
 
 ```bash
 cd andino-agent
 pip install -e ".[bedrock]"
-
-cd ../examples/researcher
-python -m andino agent.yaml
+andino run ./examples/researcher/agent.yaml
 ```
 
 ## Docker
@@ -134,38 +239,25 @@ session:
 
 ## Creating a New Agent
 
-1. Create the agent directory:
+### Host deployment
+
+```bash
+andino init my-agent
+vim ~/.andino/agents/my-agent/agent.yaml
+vim ~/.andino/agents/my-agent/system_prompt.md
+andino run my-agent
+```
+
+### Docker deployment
+
+1. Create the agent directory and config:
 ```bash
 mkdir examples/my-agent
 ```
 
-2. Write `agent.yaml`:
-```yaml
-name: my-agent
-version: "1.0.0"
-description: "What this agent does"
+2. Write `agent.yaml` and `system_prompt.md`.
 
-model:
-  provider: bedrock
-  model_id: us.anthropic.claude-sonnet-4-6
-  max_tokens: 4096
-
-system_prompt: ./system_prompt.md
-
-tools:
-  - strands_tools.http_request:http_request
-
-server:
-  port: 8105
-
-limits:
-  max_concurrent_tasks: 1
-  task_timeout_seconds: 600
-```
-
-3. Write `system_prompt.md` with the agent's persona and instructions.
-
-4. Write `Dockerfile`:
+3. Write `Dockerfile`:
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
@@ -173,10 +265,10 @@ COPY pyproject.toml /sdk/
 COPY src/ /sdk/src/
 RUN pip install --no-cache-dir /sdk[bedrock] && rm -rf /sdk
 COPY examples/my-agent/ .
-CMD ["python", "-m", "andino", "agent.yaml"]
+CMD ["andino", "run", "./agent.yaml"]
 ```
 
-5. Add to `docker-compose.agents.yml`:
+4. Add to `docker-compose.agents.yml`:
 ```yaml
   my-agent:
     build:

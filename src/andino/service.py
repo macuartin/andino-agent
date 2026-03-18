@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 
 import uvicorn
 
@@ -12,6 +13,22 @@ from andino.server import create_app
 from andino.task_executor import TaskExecutor
 
 logger = logging.getLogger(__name__)
+
+
+def configure_logging(level: str = "info", log_file: str | None = None) -> None:
+    """Configure the root logger with console and optional file output."""
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if log_file:
+        from logging.handlers import RotatingFileHandler
+
+        handlers.append(RotatingFileHandler(log_file, maxBytes=50_000_000, backupCount=3))
+
+    logging.basicConfig(
+        level=getattr(logging, level.upper()),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        handlers=handlers,
+        force=True,
+    )
 
 
 class AgentService:
@@ -57,13 +74,35 @@ class AgentService:
         )
         server = uvicorn.Server(uv_config)
 
-        coros: list[asyncio.Task] = [server.serve()]
+        # Register signal handlers for graceful shutdown
+        loop = asyncio.get_running_loop()
+        shutdown_event = asyncio.Event()
+
+        def _handle_signal(sig: int) -> None:
+            logger.info("signal_received sig=%s, shutting down", sig)
+            shutdown_event.set()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, _handle_signal, sig)
+
+        # Start server and channels as concurrent tasks
+        tasks = [asyncio.create_task(server.serve())]
         for ch in channels:
-            coros.append(ch.start())
+            tasks.append(asyncio.create_task(ch.start()))
             logger.info("channel_starting name=%s", ch.name)
 
-        try:
-            await asyncio.gather(*coros)
-        finally:
-            for ch in channels:
-                await ch.stop()
+        shutdown_task = asyncio.create_task(shutdown_event.wait())
+
+        # Wait until any task completes or shutdown signal received
+        _done, pending = await asyncio.wait(
+            [*tasks, shutdown_task], return_when=asyncio.FIRST_COMPLETED
+        )
+
+        # Cancel remaining tasks
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+        # Clean up channels
+        for ch in channels:
+            await ch.stop()

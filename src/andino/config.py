@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel
 
 from andino.hitl import HitlConfig
+from andino.home import resolve_data_path
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,13 @@ class AgentConfig(BaseModel):
             else:
                 logger.warning("system_prompt file not found: %s", sp_path)
 
-        return cls.model_validate(raw)
+        config = cls.model_validate(raw)
+
+        # Resolve relative data paths against ANDINO_HOME
+        config.session.storage_dir = str(resolve_data_path(config.session.storage_dir))
+        config.workspace.base_dir = str(resolve_data_path(config.workspace.base_dir))
+
+        return config
 
 
 _ENV_VAR_RE = re.compile(r"\$\{([^}]+)}")

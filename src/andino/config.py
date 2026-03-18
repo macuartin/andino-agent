@@ -26,6 +26,7 @@ class ModelConfig(BaseModel):
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8100
+    api_key: str = ""
 
 
 class LimitsConfig(BaseModel):

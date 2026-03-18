@@ -3,7 +3,8 @@ from __future__ import annotations
 import time
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from andino.config import AgentConfig
@@ -26,11 +27,34 @@ class InterruptResponse(BaseModel):
     response: str
 
 
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _build_auth_dependency(api_key: str):
+    """Return a dependency that validates Bearer token, or a no-op if no key configured."""
+    if not api_key:
+
+        async def _noop() -> None:
+            pass
+
+        return _noop
+
+    async def _require_api_key(
+        credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),  # noqa: B008
+    ) -> None:
+        if credentials is None or credentials.credentials != api_key:
+            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    return _require_api_key
+
+
 def create_app(config: AgentConfig, executor: TaskExecutor | None = None) -> FastAPI:
     """Create a FastAPI application for a standalone Andino agent."""
     if executor is None:
         executor = TaskExecutor(config)
     start_time = time.monotonic()
+
+    auth = _build_auth_dependency(config.server.api_key)
 
     app = FastAPI(
         title=f"Andino Agent: {config.name}",
@@ -38,7 +62,7 @@ def create_app(config: AgentConfig, executor: TaskExecutor | None = None) -> Fas
         description=config.description,
     )
 
-    @app.post("/task", status_code=202, response_model=TaskAccepted)
+    @app.post("/task", status_code=202, response_model=TaskAccepted, dependencies=[Depends(auth)])
     async def submit_task(request: TaskRequest) -> TaskAccepted:
         try:
             status = await executor.submit(request.task_id, request.prompt, request.session_id)
@@ -46,14 +70,14 @@ def create_app(config: AgentConfig, executor: TaskExecutor | None = None) -> Fas
             raise HTTPException(status_code=429, detail=str(exc)) from exc
         return TaskAccepted(task_id=status.task_id)
 
-    @app.get("/task/{task_id}", response_model=TaskStatus)
+    @app.get("/task/{task_id}", response_model=TaskStatus, dependencies=[Depends(auth)])
     async def get_task(task_id: str) -> TaskStatus:
         status = executor.get_status(task_id)
         if not status:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return status
 
-    @app.post("/task/{task_id}/respond")
+    @app.post("/task/{task_id}/respond", dependencies=[Depends(auth)])
     async def respond_to_task(task_id: str, body: InterruptResponse) -> dict:
         task = executor.get_status(task_id)
         if not task:
@@ -70,7 +94,7 @@ def create_app(config: AgentConfig, executor: TaskExecutor | None = None) -> Fas
             raise HTTPException(status_code=409, detail="No pending interrupt for this task")
         return {"task_id": task_id, "status": "resumed"}
 
-    @app.get("/tasks", response_model=list[TaskStatus])
+    @app.get("/tasks", response_model=list[TaskStatus], dependencies=[Depends(auth)])
     async def list_tasks() -> list[TaskStatus]:
         return executor.list_tasks()
 
@@ -83,7 +107,7 @@ def create_app(config: AgentConfig, executor: TaskExecutor | None = None) -> Fas
             "uptime_seconds": round(time.monotonic() - start_time, 1),
         }
 
-    @app.get("/info")
+    @app.get("/info", dependencies=[Depends(auth)])
     async def info() -> dict:
         return {
             "name": config.name,

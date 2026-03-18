@@ -5,18 +5,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from andino.config import AgentConfig
 from andino.server import create_app
 from andino.task_executor import TaskState, TaskStatus
+
+
+def _mock_executor():
+    mock = MagicMock()
+    mock.running_count = 0
+    mock.submit = AsyncMock()
+    mock.get_status = MagicMock(return_value=None)
+    mock.list_tasks = MagicMock(return_value=[])
+    return mock
 
 
 @pytest.fixture()
 def app(sample_config):
     with patch("andino.server.TaskExecutor") as MockExecutor:
-        mock_executor = MagicMock()
-        mock_executor.running_count = 0
-        mock_executor.submit = AsyncMock()
-        mock_executor.get_status = MagicMock(return_value=None)
-        mock_executor.list_tasks = MagicMock(return_value=[])
+        mock_executor = _mock_executor()
         MockExecutor.return_value = mock_executor
 
         application = create_app(sample_config)
@@ -100,3 +106,45 @@ class TestTaskRetrieval:
         resp = client.get("/tasks")
         assert resp.status_code == 200
         assert len(resp.json()) == 2
+
+
+class TestAuth:
+    """Test API key authentication."""
+
+    @pytest.fixture()
+    def auth_config(self, sample_config_dict):
+        d = {**sample_config_dict, "server": {**sample_config_dict["server"], "api_key": "test-secret-key"}}
+        return AgentConfig.model_validate(d)
+
+    @pytest.fixture()
+    def auth_app(self, auth_config):
+        with patch("andino.server.TaskExecutor") as MockExecutor:
+            mock_executor = _mock_executor()
+            MockExecutor.return_value = mock_executor
+            application = create_app(auth_config)
+            application._test_executor = mock_executor
+            yield application
+
+    @pytest.fixture()
+    def auth_client(self, auth_app):
+        return TestClient(auth_app)
+
+    def test_no_key_configured_allows_all(self, client):
+        resp = client.get("/tasks")
+        assert resp.status_code == 200
+
+    def test_valid_key_returns_200(self, auth_client):
+        resp = auth_client.get("/tasks", headers={"Authorization": "Bearer test-secret-key"})
+        assert resp.status_code == 200
+
+    def test_missing_key_returns_401(self, auth_client):
+        resp = auth_client.get("/tasks")
+        assert resp.status_code == 401
+
+    def test_wrong_key_returns_401(self, auth_client):
+        resp = auth_client.get("/tasks", headers={"Authorization": "Bearer wrong-key"})
+        assert resp.status_code == 401
+
+    def test_health_no_auth_required(self, auth_client):
+        resp = auth_client.get("/health")
+        assert resp.status_code == 200

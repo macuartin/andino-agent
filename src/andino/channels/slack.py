@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from andino.channels import BaseChannel
-from andino.task_executor import TaskExecutor
+from andino.task_executor import TaskExecutor, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +118,27 @@ class SlackChannel(BaseChannel):
                 return
             await self._handle_event(event, say)
 
+        @self._app.action(re.compile(r"^hitl_(approve|deny):"))
+        async def handle_hitl_action(ack: Any, action: dict, say: Any, body: dict) -> None:
+            await ack()
+            action_id = action["action_id"]
+            # Format: hitl_approve:task_id:interrupt_id
+            parts = action_id.split(":", 2)
+            decision = "approved" if parts[0] == "hitl_approve" else "denied"
+            task_id = parts[1]
+            interrupt_id = parts[2]
+
+            responses = [
+                {"interruptResponse": {"interruptId": interrupt_id, "response": decision}}
+            ]
+            self._executor.respond_to_interrupt(task_id, responses)
+
+            user = body.get("user", {}).get("username", "someone")
+            msg_data = body.get("message", {})
+            thread_ts = msg_data.get("thread_ts") or msg_data.get("ts")
+            emoji = ":white_check_mark:" if decision == "approved" else ":x:"
+            await say(text=f"{emoji} Tool *{decision}* by @{user}", thread_ts=thread_ts)
+
     async def _handle_event(self, event: dict, say: Any) -> None:
         # Skip bot messages (avoid infinite loops)
         if event.get("bot_id"):
@@ -139,8 +160,11 @@ class SlackChannel(BaseChannel):
 
         logger.info("slack_task session_id=%s channel=%s", session_id, channel_id)
 
+        async def on_interrupt(task_status: TaskStatus) -> None:
+            await self._post_approval_buttons(say, thread_ts, task_status)
+
         try:
-            status = await self.submit_and_wait(prompt, session_id)
+            status = await self.submit_and_wait(prompt, session_id, on_interrupt=on_interrupt)
             response_text = status.result or status.error or "No response"
         except Exception:
             logger.exception("slack_task_failed session_id=%s", session_id)
@@ -157,6 +181,51 @@ class SlackChannel(BaseChannel):
         # otherwise use ts (the message itself becomes the thread root).
         thread_ts = event.get("thread_ts") or event.get("ts", "")
         return f"slack:{channel_id}:{thread_ts}"
+
+    async def _post_approval_buttons(
+        self, say: Any, thread_ts: str | None, task_status: TaskStatus
+    ) -> None:
+        """Post Block Kit buttons for each pending interrupt."""
+        for interrupt in task_status.interrupts or []:
+            reason = interrupt.get("reason", {})
+            tool_name = reason.get("tool_name", "unknown") if isinstance(reason, dict) else str(reason)
+            tool_input = str(reason.get("tool_input", {}) if isinstance(reason, dict) else "")[:500]
+
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f":warning: *Tool approval required*\n\n"
+                            f"*Tool:* `{tool_name}`\n"
+                            f"*Input:*\n```{tool_input}```"
+                        ),
+                    },
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Approve"},
+                            "style": "primary",
+                            "action_id": f"hitl_approve:{task_status.task_id}:{interrupt['interrupt_id']}",
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Deny"},
+                            "style": "danger",
+                            "action_id": f"hitl_deny:{task_status.task_id}:{interrupt['interrupt_id']}",
+                        },
+                    ],
+                },
+            ]
+            await say(
+                blocks=blocks,
+                text=f"Approval needed: {tool_name}",
+                thread_ts=thread_ts,
+            )
 
     def _format(self, text: str) -> str:
         """Convert standard markdown to Slack mrkdwn."""

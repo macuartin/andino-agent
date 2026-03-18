@@ -35,11 +35,18 @@ def build_agent(config: AgentConfig, session_id: str | None = None) -> Agent:
 
     tools = _build_tools(config)
 
+    hooks: list = []
+    if config.hitl.require_approval:
+        from andino.hitl import ToolApprovalHook
+
+        hooks.append(ToolApprovalHook(config.hitl.require_approval))
+
     kwargs: dict = dict(
         model=model,
         tools=tools or None,
         system_prompt=config.system_prompt or None,
         conversation_manager=SlidingWindowConversationManager(),
+        hooks=hooks or None,
     )
 
     if session_id is not None:

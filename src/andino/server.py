@@ -21,6 +21,11 @@ class TaskAccepted(BaseModel):
     status: TaskState = TaskState.queued
 
 
+class InterruptResponse(BaseModel):
+    interrupt_id: str
+    response: str
+
+
 def create_app(config: AgentConfig, executor: TaskExecutor | None = None) -> FastAPI:
     """Create a FastAPI application for a standalone Andino agent."""
     if executor is None:
@@ -47,6 +52,23 @@ def create_app(config: AgentConfig, executor: TaskExecutor | None = None) -> Fas
         if not status:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return status
+
+    @app.post("/task/{task_id}/respond")
+    async def respond_to_task(task_id: str, body: InterruptResponse) -> dict:
+        task = executor.get_status(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        if task.status != TaskState.interrupted:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Task {task_id} is not interrupted (status: {task.status})",
+            )
+        responses = [
+            {"interruptResponse": {"interruptId": body.interrupt_id, "response": body.response}}
+        ]
+        if not executor.respond_to_interrupt(task_id, responses):
+            raise HTTPException(status_code=409, detail="No pending interrupt for this task")
+        return {"task_id": task_id, "status": "resumed"}
 
     @app.get("/tasks", response_model=list[TaskStatus])
     async def list_tasks() -> list[TaskStatus]:

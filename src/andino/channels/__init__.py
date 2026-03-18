@@ -6,6 +6,7 @@ import importlib
 import logging
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from andino.config import AgentConfig
@@ -38,9 +39,16 @@ class BaseChannel(ABC):
         """Convert agent output to channel-native format. Override per channel."""
         return text
 
-    async def submit_and_wait(self, prompt: str, session_id: str | None = None) -> TaskStatus:
+    async def submit_and_wait(
+        self,
+        prompt: str,
+        session_id: str | None = None,
+        on_interrupt: Callable | None = None,
+    ) -> TaskStatus:
         """Submit a task and wait for completion."""
         task_id = str(uuid.uuid4())
+        if on_interrupt is not None:
+            self._executor.on_interrupt(task_id, on_interrupt)
         return await self._executor.submit_and_wait(task_id, prompt, session_id)
 
 

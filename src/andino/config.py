@@ -9,6 +9,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
+from andino.hitl import HitlConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +47,7 @@ class AgentConfig(BaseModel):
     tools: list[str] = []
     mcp_servers: list[dict[str, Any]] = []
     channels: dict[str, dict[str, Any]] = {}
+    hitl: HitlConfig = HitlConfig()
     server: ServerConfig = ServerConfig()
     limits: LimitsConfig = LimitsConfig()
     session: SessionConfig = SessionConfig()

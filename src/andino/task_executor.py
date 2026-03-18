@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import OrderedDict
+from collections.abc import Callable
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -19,6 +21,7 @@ MAX_HISTORY = 100
 class TaskState(str, Enum):
     queued = "queued"
     running = "running"
+    interrupted = "interrupted"
     completed = "completed"
     failed = "failed"
     timeout = "timeout"
@@ -31,6 +34,7 @@ class TaskStatus(BaseModel):
     session_id: str | None = None
     result: str | None = None
     error: str | None = None
+    interrupts: list[dict[str, Any]] | None = None
     created_at: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
@@ -112,6 +116,8 @@ class TaskExecutor:
         self._workers: list[asyncio.Task] = []
         self._started = False
         self._completion_events: dict[str, asyncio.Event] = {}
+        self._pending_responses: dict[str, asyncio.Future[list[dict]]] = {}
+        self._interrupt_callbacks: dict[str, Callable] = {}
 
     def ensure_started(self) -> None:
         """Start worker coroutines. Safe to call multiple times."""
@@ -177,12 +183,58 @@ class TaskExecutor:
 
             agent, lock = await self._pool.acquire(item.session_id)
             try:
-                result = await asyncio.wait_for(
-                    agent.invoke_async(item.prompt),
-                    timeout=self._limits.task_timeout_seconds,
-                )
-                task_status.status = TaskState.completed
-                task_status.result = _extract_text(result)
+                input_data: Any = item.prompt
+                while True:
+                    result = await asyncio.wait_for(
+                        agent.invoke_async(input_data),
+                        timeout=self._limits.task_timeout_seconds,
+                    )
+
+                    # Check for interrupt
+                    if result.stop_reason == "interrupt" and result.interrupts:
+                        task_status.status = TaskState.interrupted
+                        task_status.interrupts = [
+                            {
+                                "interrupt_id": intr.id,
+                                "name": intr.name,
+                                "reason": intr.reason,
+                            }
+                            for intr in result.interrupts
+                        ]
+                        logger.info(
+                            "task_interrupted task_id=%s tools=%s",
+                            item.task_id,
+                            [i["name"] for i in task_status.interrupts],
+                        )
+
+                        # Notify channel callback if registered
+                        cb = self._interrupt_callbacks.pop(item.task_id, None)
+                        if cb is not None:
+                            await cb(task_status)
+
+                        # Wait for human response
+                        loop = asyncio.get_running_loop()
+                        future: asyncio.Future[list[dict]] = loop.create_future()
+                        self._pending_responses[item.task_id] = future
+                        try:
+                            responses = await asyncio.wait_for(
+                                future,
+                                timeout=self._limits.task_timeout_seconds,
+                            )
+                        finally:
+                            self._pending_responses.pop(item.task_id, None)
+
+                        # Resume agent with interrupt responses
+                        input_data = responses
+                        task_status.status = TaskState.running
+                        task_status.interrupts = None
+                        continue
+
+                    # Normal completion
+                    task_status.status = TaskState.completed
+                    task_status.result = _extract_text(result)
+                    break
+
             except asyncio.TimeoutError:
                 logger.warning("task_timeout task_id=%s", item.task_id)
                 task_status.status = TaskState.timeout
@@ -198,6 +250,21 @@ class TaskExecutor:
                 if event is not None:
                     event.set()
                 self._queue.task_done()
+
+    def respond_to_interrupt(self, task_id: str, responses: list[dict]) -> bool:
+        """Deliver human responses to a pending interrupt.
+
+        Returns True if responses were delivered, False if no pending interrupt.
+        """
+        future = self._pending_responses.get(task_id)
+        if future is None or future.done():
+            return False
+        future.set_result(responses)
+        return True
+
+    def on_interrupt(self, task_id: str, callback: Callable) -> None:
+        """Register an async callback to invoke when a task is interrupted."""
+        self._interrupt_callbacks[task_id] = callback
 
     def get_status(self, task_id: str) -> TaskStatus | None:
         return self._tasks.get(task_id)

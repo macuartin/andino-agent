@@ -1,5 +1,11 @@
 """Andino built-in tools."""
 
+from andino.tools.apollo import (
+    apollo_enrich_organization,
+    apollo_enrich_person,
+    apollo_search_contacts,
+    apollo_search_people,
+)
 from andino.tools.datadog import (
     datadog_get_monitor,
     datadog_list_events,
@@ -17,8 +23,17 @@ from andino.tools.jira import (
     jira_search_issues,
     jira_transition_issue,
 )
+from andino.tools.lusha import (
+    lusha_enrich_company,
+    lusha_enrich_person,
+    lusha_search_contacts,
+)
 
 __all__ = [
+    "apollo_enrich_organization",
+    "apollo_enrich_person",
+    "apollo_search_contacts",
+    "apollo_search_people",
     "datadog_get_monitor",
     "datadog_list_events",
     "datadog_list_monitors",
@@ -32,4 +47,7 @@ __all__ = [
     "jira_get_transitions",
     "jira_search_issues",
     "jira_transition_issue",
+    "lusha_enrich_company",
+    "lusha_enrich_person",
+    "lusha_search_contacts",
 ]

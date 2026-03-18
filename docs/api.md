@@ -2,6 +2,18 @@
 
 Base URL: `http://{host}:{port}` (configured in `agent.yaml`).
 
+## Authentication
+
+When `server.api_key` is configured in `agent.yaml`, all endpoints except `/health` require a Bearer token:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" http://localhost:8101/tasks
+```
+
+Without the header (or with a wrong key), the server returns `401 Unauthorized`.
+
+The `/health` endpoint is always unauthenticated — safe for load balancer health checks.
+
 ## POST /task
 
 Submit a task for asynchronous execution.
@@ -53,6 +65,8 @@ Get the status and result of a task.
   "session_id": "jira-AD-123",
   "result": "Based on my analysis...",
   "error": null,
+  "interrupts": null,
+  "workspace_dir": "/home/user/.andino/.workspaces/jira-AD-123",
   "created_at": "2026-03-17T16:51:32.229697+00:00",
   "started_at": "2026-03-17T16:51:32.231773+00:00",
   "completed_at": "2026-03-17T16:51:35.899529+00:00"
@@ -65,9 +79,17 @@ Get the status and result of a task.
 |---|---|
 | `queued` | Task is in the queue, waiting for a worker |
 | `running` | Worker picked up the task, agent is executing |
+| `interrupted` | Agent paused, waiting for human approval (HITL) |
 | `completed` | Agent finished successfully, `result` contains output |
 | `failed` | Agent threw an exception, `error` contains details |
 | `timeout` | Task exceeded `task_timeout_seconds` |
+
+**Additional fields:**
+
+| Field | Present when | Description |
+|---|---|---|
+| `interrupts` | `status=interrupted` | List of pending tool approvals (see HITL section) |
+| `workspace_dir` | workspace enabled + session_id set | Absolute path to the session's workspace directory |
 
 **Error (404):**
 
@@ -76,6 +98,41 @@ Get the status and result of a task.
   "detail": "Task {task_id} not found"
 }
 ```
+
+## POST /task/{task_id}/respond
+
+Respond to a human-in-the-loop (HITL) interrupt. Only valid when a task's status is `interrupted`.
+
+**Request:**
+
+```json
+{
+  "interrupt_id": "approve:shell",
+  "response": "approved"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `interrupt_id` | string | yes | The interrupt ID from the `interrupts` array |
+| `response` | string | yes | `"approved"` to allow, any other value to deny |
+
+**Response (200):**
+
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "resumed"
+}
+```
+
+**Errors:**
+
+| Code | Detail |
+|---|---|
+| 404 | Task not found |
+| 409 | Task is not interrupted (wrong status) |
+| 409 | No pending interrupt for this task |
 
 ## GET /tasks
 
@@ -92,7 +149,7 @@ List all tasks (up to last 100, oldest completed tasks are evicted).
 
 ## GET /health
 
-Health check endpoint.
+Health check endpoint. **No authentication required.**
 
 **Response (200):**
 
@@ -137,10 +194,12 @@ Agent metadata from config.
 # Submit
 TASK_ID=$(curl -s -X POST http://localhost:8101/task \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
   -d '{"prompt": "Summarize the Python GIL"}' | jq -r .task_id)
 
 # Poll until done
-curl -s http://localhost:8101/task/$TASK_ID | jq .status
+curl -s -H "Authorization: Bearer $API_KEY" \
+  http://localhost:8101/task/$TASK_ID | jq .status
 ```
 
 ### Session-based conversation
@@ -149,21 +208,39 @@ curl -s http://localhost:8101/task/$TASK_ID | jq .status
 # First message — establishes session
 curl -s -X POST http://localhost:8101/task \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
   -d '{"prompt": "My project uses FastAPI and PostgreSQL", "session_id": "project-ctx"}'
 
 # Second message — agent remembers context
 curl -s -X POST http://localhost:8101/task \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
   -d '{"prompt": "What database am I using?", "session_id": "project-ctx"}'
 # Result: "You mentioned you are using PostgreSQL."
 ```
 
-### Queue backpressure
+### HITL workflow (tool approval)
 
 ```bash
-# If max_concurrent_tasks=1 and queue is full:
-curl -s -X POST http://localhost:8101/task \
+# 1. Submit a task that uses a tool requiring approval
+TASK_ID=$(curl -s -X POST http://localhost:8101/task \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Task 3"}'
-# → 429 {"detail": "Task queue is full. Try again later."}
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"prompt": "Run ls -la in the workspace"}' | jq -r .task_id)
+
+# 2. Poll — status will become "interrupted"
+curl -s -H "Authorization: Bearer $API_KEY" \
+  http://localhost:8101/task/$TASK_ID | jq '{status, interrupts}'
+# {"status": "interrupted", "interrupts": [{"interrupt_id": "approve:shell", ...}]}
+
+# 3. Approve the tool execution
+curl -s -X POST http://localhost:8101/task/$TASK_ID/respond \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"interrupt_id": "approve:shell", "response": "approved"}'
+
+# 4. Task resumes and completes
+curl -s -H "Authorization: Bearer $API_KEY" \
+  http://localhost:8101/task/$TASK_ID | jq .status
+# "completed"
 ```

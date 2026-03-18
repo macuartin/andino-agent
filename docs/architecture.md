@@ -13,7 +13,8 @@ Each Andino agent runs as an independent unit: one process, one HTTP server, opt
 │  ┌──────────────┐   ┌──────────────────────────────┐     │
 │  │ HTTP Server   │   │  Channels (optional)          │    │
 │  │ POST /task ───┤   │  SlackChannel ────────────────┤    │
-│  │               │   │  (future: Telegram, etc.) ────┤    │
+│  │ POST /respond─┤   │  (future: Telegram, etc.) ────┤    │
+│  │ Bearer auth ──┤   │                               │    │
 │  └───────┬───────┘   └──────────────┬────────────────┘    │
 │          │                          │                     │
 │          └──────────┬───────────────┘                     │
@@ -28,7 +29,12 @@ Each Andino agent runs as an independent unit: one process, one HTTP server, opt
 │     await agent.invoke_async(prompt)                      │
 │         + asyncio.wait_for(timeout)                       │
 │                     │                                     │
-│            TaskStatus updated                             │
+│          ┌──── interrupt? ────┐                           │
+│          │ yes                │ no                        │
+│          ▼                   ▼                            │
+│   status=interrupted   status=completed                  │
+│   wait for /respond    result=text                       │
+│   resume agent                                           │
 │                                                          │
 │  GET /task/{id}  GET /tasks  GET /health  GET /info      │
 └──────────────────────────────────────────────────────────┘
@@ -37,14 +43,19 @@ Each Andino agent runs as an independent unit: one process, one HTTP server, opt
 ## Startup Flow
 
 ```
-python -m andino agent.yaml
+andino run researcher
+         │
+         ├── load_dotenv()               # ~/.andino/.env + agent/.env
+         ├── configure_logging()         # stdout + optional file handler
          │
          ▼
   AgentService.from_yaml()
          │
-         ├── AgentConfig.from_yaml()     # Parse YAML, expand ${VAR}, resolve system_prompt
+         ├── AgentConfig.from_yaml()     # Parse YAML, expand ${VAR}, resolve paths
          ├── Set env vars                 # BYPASS_TOOL_CONSENT, etc.
          └── _run_async()
+                  │
+                  ├── Register SIGTERM/SIGINT handlers
                   │
                   ├── TaskExecutor(config)   # shared instance
                   │        │
@@ -53,12 +64,12 @@ python -m andino agent.yaml
                   │        └── asyncio.Queue(maxsize)
                   │
                   ├── create_app(config, executor)
-                  │        └── Mount FastAPI routes
+                  │        └── Mount FastAPI routes + auth middleware
                   │
                   ├── load_channels(config, executor)
                   │        └── Instantiate enabled channels (Slack, etc.)
                   │
-                  └── asyncio.gather(server.serve(), *channels)
+                  └── asyncio.wait([server, channels, shutdown_event])
 ```
 
 ## Task Lifecycle
@@ -78,7 +89,12 @@ python -m andino agent.yaml
    └── await agent.invoke_async(prompt)
        wrapped in asyncio.wait_for(timeout)
 
-3. Execution completes
+3. Execution loop (may repeat on interrupts)
+   ├── Interrupt (HITL) → status=interrupted, interrupts=[{id, name, reason}]
+   │   ├── Notify channel callback (Slack buttons) if registered
+   │   ├── Create asyncio.Future, wait for human response
+   │   ├── POST /respond delivers response → future.set_result()
+   │   └── Resume agent with interrupt responses → back to invoke_async
    ├── Success → status=completed, result=text
    ├── Timeout → status=timeout, error=message
    └── Error   → status=failed, error=message
@@ -117,22 +133,37 @@ The **AgentPool** manages the cache:
 - One `asyncio.Lock` per session prevents race conditions
 - The stateless agent (key=`None`) is never evicted
 
+## Graceful Shutdown
+
+Signal handlers are registered on the event loop for `SIGTERM` and `SIGINT`:
+
+1. Signal received → `shutdown_event.set()`
+2. `asyncio.wait()` returns (FIRST_COMPLETED)
+3. All pending tasks (server, channels) are cancelled
+4. Channel `stop()` methods are called for cleanup
+5. Process exits cleanly
+
+This ensures in-flight tasks complete before shutdown and channels (Slack Socket Mode, etc.) disconnect properly.
+
 ## Module Dependency Graph
 
 ```
-__main__.py
-    └── service.py
+__main__.py (CLI: run, init, list)
+    ├── home.py (ANDINO_HOME resolver)
+    └── service.py (configure_logging, signal handling)
             ├── config.py (AgentConfig)
-            ├── server.py (create_app)
+            │       └── home.py (resolve_data_path)
+            ├── server.py (create_app + Bearer auth)
             │       └── task_executor.py (TaskExecutor)
-            │               ├── agent_builder.py (build_agent)
+            │               ├── agent_builder.py (build_agent + workspace)
             │               │       ├── model_registry.py
             │               │       ├── tool_loader.py
-            │               │       └── mcp_loader.py
+            │               │       ├── mcp_loader.py
+            │               │       └── hitl.py (ToolApprovalHook)
             │               └── config.py (AgentConfig)
             └── channels/ (load_channels)
                     ├── __init__.py (BaseChannel, loader)
-                    └── slack.py (SlackChannel)
+                    └── slack.py (SlackChannel + HITL buttons)
 ```
 
 No circular dependencies. Each module has a single responsibility.

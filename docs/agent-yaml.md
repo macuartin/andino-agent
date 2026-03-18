@@ -35,6 +35,11 @@ mcp_servers:
 server:
   host: "0.0.0.0"
   port: 8103
+  api_key: ${ANDINO_API_KEY}
+
+hitl:
+  require_approval:
+    - strands_tools.shell:shell
 
 limits:
   max_concurrent_tasks: 1
@@ -137,6 +142,37 @@ mcp_servers:
 |---|---|---|---|
 | `host` | string | `"0.0.0.0"` | Bind address |
 | `port` | int | `8100` | HTTP port |
+| `api_key` | string | `""` | API key for Bearer token auth. When set, all endpoints except `/health` require `Authorization: Bearer <key>` |
+
+Use `${VAR}` syntax to load the key from an environment variable:
+
+```yaml
+server:
+  api_key: ${ANDINO_API_KEY}
+```
+
+### `hitl`
+
+Human-in-the-loop (HITL) tool approval. When configured, the agent pauses before executing listed tools and waits for human approval.
+
+```yaml
+hitl:
+  require_approval:
+    - strands_tools.shell:shell
+    - strands_tools.file_write:file_write
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `require_approval` | list[string] | `[]` | Tool references that require human approval before execution |
+
+**How it works:**
+
+1. Agent calls a tool in the `require_approval` list
+2. Execution pauses — task status becomes `interrupted`
+3. The `interrupts` field in `TaskStatus` shows the pending approval with tool name and input
+4. A human responds via `POST /task/{task_id}/respond` (HTTP) or interactive buttons (Slack)
+5. If approved, execution continues. If denied, the tool is cancelled with a denial message
 
 ### `limits`
 
@@ -215,3 +251,13 @@ When enabled and a `session_id` is provided, Andino:
 |---|---|---|---|
 | `storage_dir` | string | `".sessions"` | Directory where `FileSessionManager` persists conversation state |
 | `max_pool_size` | int | `20` | Max agent instances cached in the AgentPool (LRU eviction) |
+
+## Path Resolution
+
+Relative paths for `session.storage_dir` and `workspace.base_dir` are resolved against `ANDINO_HOME` (default: `~/.andino/`), not the current working directory. Absolute paths are used as-is.
+
+For example, with default ANDINO_HOME:
+- `storage_dir: .sessions` → `~/.andino/.sessions/`
+- `storage_dir: /data/sessions` → `/data/sessions/` (unchanged)
+
+Override ANDINO_HOME with the `ANDINO_HOME` environment variable.

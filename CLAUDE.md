@@ -7,15 +7,21 @@ Each agent is defined in a YAML file and deployed as an independent HTTP server 
 ## Quick Reference
 - **Language:** Python 3.11+
 - **Package manager:** pip + hatchling
-- **Run an agent:** `python -m andino <agent.yaml>`
+- **Run an agent:** `andino run <name>` or `andino run <agent.yaml>`
 - **Install:** `pip install -e ".[bedrock]"` (or `anthropic`, `openai`, `slack`, `all`)
+- **Create agent:** `andino init <name>` (scaffolds in `~/.andino/agents/<name>/`)
+- **List agents:** `andino list`
 - **Lint:** `ruff check src/`
 - **Tests:** `pytest tests/ -v`
+- **ANDINO_HOME:** `~/.andino/` (override with `ANDINO_HOME` env var)
 
 ## Project Structure
 - `src/andino/` — core SDK code
 - `src/andino/channels/` — channel integrations (Slack, etc.)
 - `src/andino/tools/` — built-in tools (Jira, etc.)
+- `src/andino/home.py` — ANDINO_HOME directory resolver
+- `src/andino/hitl.py` — human-in-the-loop tool approval hook
+- `deploy/` — systemd unit template
 - `examples/` — sample agent configurations (researcher, architect, coder, reviewer)
 - `tests/` — unit tests (pytest + pytest-asyncio)
 - `docs/` — documentation (architecture, API, deployment, agent.yaml reference)
@@ -28,6 +34,11 @@ Each agent is defined in a YAML file and deployed as an independent HTTP server 
 - Tools are loaded dynamically via `"module.path:attribute"` format
 - Channels are loaded dynamically from `channels` section in `agent.yaml` via internal registry
 - YAML config supports `${VAR}` syntax for environment variable expansion (secrets, tokens)
+- `.env` files are loaded via python-dotenv: global (`~/.andino/.env`) + per-agent (`agents/<name>/.env`), system env vars always take precedence
+- Relative paths in config (`session.storage_dir`, `workspace.base_dir`) resolve against ANDINO_HOME, not cwd
+- HTTP endpoints (except `/health`) support optional Bearer token auth via `server.api_key`
+- HITL tool approval uses Strands `BeforeToolCallEvent` interrupts — configured via `hitl.require_approval` list
+- Graceful shutdown via SIGTERM/SIGINT signal handlers cancels all tasks and stops channels cleanly
 
 ## Practices
 

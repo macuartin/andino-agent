@@ -2,14 +2,55 @@
 
 Standalone autonomous agent runtime built on [Strands Agents](https://strandsagents.com/). Define an agent in a YAML file, deploy it as an independent unit with its own HTTP API.
 
+Licensed under [Apache 2.0](LICENSE).
+
 ## Quick Start
 
 ```bash
-pip install -e ".[bedrock]"
-python -m andino agent.yaml
+pip install andino-agent[bedrock]
+
+# Create a new agent
+andino init researcher
+
+# Edit config and add credentials
+vim ~/.andino/agents/researcher/agent.yaml
+echo "AWS_REGION=us-east-1" >> ~/.andino/agents/researcher/.env
+
+# Run
+andino run researcher
 ```
 
-The agent starts an HTTP server and accepts tasks via `POST /task`.
+## CLI
+
+```bash
+andino run <name>              # Run agent by name
+andino run ./path/agent.yaml   # Run from a path
+andino init <name>             # Scaffold a new agent
+andino list                    # List agents
+andino --version               # Show version
+```
+
+Options for `andino run`:
+- `--log-level debug|info|warning|error` (default: `info`)
+- `--log-file /path/to/file.log` (log to file in addition to stdout)
+
+## ANDINO_HOME
+
+All data lives under `~/.andino/` (override with `ANDINO_HOME` env var):
+
+```
+~/.andino/
+├── .env                        # global secrets
+├── agents/                     # agent configurations
+│   ├── researcher/
+│   │   ├── agent.yaml
+│   │   ├── system_prompt.md
+│   │   └── .env                # agent-specific secrets
+│   └── coder/
+├── sessions/                   # conversation state
+├── workspaces/                 # agent artifacts
+└── logs/                       # log files
+```
 
 ## agent.yaml
 
@@ -32,17 +73,32 @@ tools:
 server:
   host: "0.0.0.0"
   port: 8101
+  api_key: ${ANDINO_API_KEY}   # optional, enables Bearer token auth
+
+hitl:
+  require_approval:            # tools that need human approval before execution
+    - strands_tools.shell:shell
+
+workspace:
+  enabled: true
+  base_dir: .workspaces        # resolved against ANDINO_HOME
 
 limits:
   max_concurrent_tasks: 1
   task_timeout_seconds: 600
 
 session:
-  storage_dir: .sessions       # directory for FileSessionManager
-  max_pool_size: 20            # max cached agent instances
+  storage_dir: .sessions       # resolved against ANDINO_HOME
+  max_pool_size: 20
 ```
 
 ## API
+
+All endpoints (except `/health`) require a Bearer token when `server.api_key` is configured:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" http://localhost:8101/tasks
+```
 
 ### POST /task
 
@@ -51,95 +107,48 @@ Submit a task for async execution.
 ```bash
 curl -X POST http://localhost:8101/task \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
   -d '{"prompt": "What is Python?", "session_id": "optional-session"}'
 ```
 
-Response (202):
-```json
-{"task_id": "uuid", "status": "queued"}
-```
-
-- `task_id` is auto-generated if not provided
-- `session_id` is optional — if present, conversation state persists across tasks for that session
+Response (202): `{"task_id": "uuid", "status": "queued"}`
 
 ### GET /task/{task_id}
 
-```json
-{
-  "task_id": "uuid",
-  "status": "completed",
-  "prompt": "What is Python?",
-  "session_id": null,
-  "result": "Python is a programming language...",
-  "error": null,
-  "created_at": "2026-03-17T16:51:32Z",
-  "started_at": "2026-03-17T16:51:32Z",
-  "completed_at": "2026-03-17T16:51:35Z"
-}
-```
+Returns task status: `queued`, `running`, `interrupted`, `completed`, `failed`, `timeout`.
 
-Status values: `queued`, `running`, `completed`, `failed`, `timeout`.
+### POST /task/{task_id}/respond
 
-### GET /tasks
-
-List all tasks (last 100).
-
-### GET /health
-
-```json
-{"status": "ok", "agent_name": "researcher", "running_tasks": 0, "uptime_seconds": 120.5}
-```
-
-### GET /info
-
-Returns agent config metadata (name, version, model, tools, limits).
-
-## Docker
-
-```dockerfile
-FROM python:3.12-slim
-WORKDIR /app
-COPY pyproject.toml /sdk/
-COPY src/ /sdk/src/
-RUN pip install --no-cache-dir /sdk[bedrock] && rm -rf /sdk
-COPY examples/researcher/ .
-CMD ["python", "-m", "andino", "agent.yaml"]
-```
+Respond to a human-in-the-loop (HITL) interrupt:
 
 ```bash
-docker compose -f docker-compose.agents.yml up researcher
+curl -X POST http://localhost:8101/task/$TASK_ID/respond \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"interrupt_id": "approve:shell", "response": "approved"}'
 ```
 
-## Architecture
+### GET /tasks | GET /health | GET /info
 
-```
-POST /task ──> asyncio.Queue (bounded)
-                    |
-             N worker coroutines
-                    |
-          AgentPool.get(session_id)
-                    |
-        await agent.invoke_async(prompt)
-            + asyncio.wait_for(timeout)
-                    |
-              TaskStatus updated
-```
+List tasks, health check (no auth), agent metadata.
 
-- **Queue**: Bounded `asyncio.Queue` provides backpressure. Returns 429 when full.
-- **Workers**: N async coroutines (N = `max_concurrent_tasks`) consume from the queue.
-- **invoke_async**: Strands native async — no ThreadPoolExecutor, no threads.
-- **AgentPool**: LRU cache of Agent instances keyed by `session_id`. Stateless tasks share one agent. Session tasks get dedicated agents with `FileSessionManager`.
-- **Locks**: One `asyncio.Lock` per session prevents concurrent writes to the same conversation.
+## Features
+
+- **Async-native**: No threads — uses Strands `invoke_async()` with `asyncio`
+- **Session persistence**: Conversation state via `FileSessionManager`, keyed by `session_id`
+- **Workspace isolation**: Per-session directories for artifacts, downloads, scripts
+- **Human-in-the-loop**: Tool approval via HTTP `/respond` or Slack interactive buttons
+- **API key auth**: Optional Bearer token for securing endpoints
+- **Channels**: Slack Socket Mode with thread-scoped sessions (extensible to other platforms)
+- **MCP support**: Stdio, SSE, and Streamable HTTP transports
 
 ## Providers
 
-Install the extra for your model provider:
-
 ```bash
-pip install -e ".[bedrock]"      # AWS Bedrock (boto3)
-pip install -e ".[anthropic]"    # Anthropic API
-pip install -e ".[openai]"       # OpenAI API
-pip install -e ".[all]"          # All providers
+pip install andino-agent[bedrock]      # AWS Bedrock (boto3)
+pip install andino-agent[anthropic]    # Anthropic API
+pip install andino-agent[openai]       # OpenAI API
+pip install andino-agent[all]          # All providers + Slack
 ```
 
 ## Environment Variables
@@ -149,9 +158,11 @@ pip install -e ".[all]"          # All providers
 | `AWS_ACCESS_KEY_ID` | bedrock | AWS credentials |
 | `AWS_SECRET_ACCESS_KEY` | bedrock | AWS credentials |
 | `AWS_SESSION_TOKEN` | bedrock (SSO) | Temporary session token |
-| `AWS_REGION` | bedrock | AWS region (e.g. `us-east-1`) |
+| `AWS_REGION` | bedrock | AWS region |
 | `ANTHROPIC_API_KEY` | anthropic | Anthropic API key |
 | `OPENAI_API_KEY` | openai | OpenAI API key |
+| `ANDINO_API_KEY` | optional | API key for HTTP endpoint auth |
+| `ANDINO_HOME` | optional | Override home directory (default: `~/.andino`) |
 
 ## Project Structure
 
@@ -159,14 +170,30 @@ pip install -e ".[all]"          # All providers
 andino-agent/
   pyproject.toml
   src/andino/
-    __init__.py          # Exports: AgentConfig, AgentService
-    __main__.py          # CLI entry point
+    __main__.py          # CLI (run, init, list)
     config.py            # Pydantic models for agent.yaml
+    home.py              # ANDINO_HOME directory resolver
+    service.py           # Entry point (logging, signals, uvicorn)
+    server.py            # FastAPI app factory + auth
+    task_executor.py     # Queue, AgentPool, workers, HITL interrupts
+    agent_builder.py     # Build Strands Agent from config + workspace
     model_registry.py    # Build BedrockModel / AnthropicModel / OpenAIModel
     tool_loader.py       # Dynamic import of tool callables
-    mcp_loader.py        # MCP server client setup (stdio, sse, streamable_http)
-    agent_builder.py     # Build Strands Agent from config + optional session
-    task_executor.py     # Queue, AgentPool, workers, task lifecycle
-    server.py            # FastAPI app factory
-    service.py           # Top-level entry point (env setup + uvicorn)
+    mcp_loader.py        # MCP server client setup
+    hitl.py              # Human-in-the-loop hook (ToolApprovalHook)
+    channels/
+      __init__.py        # BaseChannel, loader
+      slack.py           # Slack Socket Mode integration
+  deploy/
+    andino@.service      # systemd user unit template
+  docs/                  # architecture, API, deployment, agent.yaml reference
+  examples/              # sample agents (researcher, architect, coder, reviewer)
+  tests/                 # pytest + pytest-asyncio
 ```
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — concurrency model, task lifecycle, module graph
+- [API Reference](docs/api.md) — endpoints, auth, HITL, examples
+- [Deployment](docs/deployment.md) — host, Docker, systemd, ANDINO_HOME
+- [agent.yaml Reference](docs/agent-yaml.md) — full config specification

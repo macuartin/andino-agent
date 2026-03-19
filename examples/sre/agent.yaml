@@ -26,6 +26,7 @@ tools:
   - andino.tools.jira:jira_assign_issue
   # General
   - strands_tools.http_request:http_request
+  - strands_tools.file_read:file_read
   - strands_tools.file_write:file_write
   - strands_tools.shell:shell
 
@@ -34,6 +35,7 @@ skills:
   - ./skills/create-incident
   - ./skills/diagnose-service
   - ./skills/escalate
+  - ./skills/review-code
 
 channels:
   slack:

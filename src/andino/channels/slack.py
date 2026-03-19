@@ -210,6 +210,18 @@ class SlackChannel(BaseChannel):
         async def on_interrupt(task_status: TaskStatus) -> None:
             await self._post_approval_buttons(say, thread_ts, task_status)
 
+        # Register Slack upload context so the slack_upload_file tool can find this thread
+        workspace_dir: str | None = None
+        if self._executor._config.workspace.enabled:
+            from pathlib import Path as _Path
+
+            workspace_dir = str(
+                _Path(self._executor._config.workspace.base_dir).resolve() / session_id
+            )
+            from andino.channels.slack_upload import register_upload_context
+
+            register_upload_context(workspace_dir, self._app.client, channel_id, thread_ts)
+
         # Add processing indicator (⏳ reaction on the user's message)
         event_ts = event.get("ts", "")
         try:
@@ -233,6 +245,11 @@ class SlackChannel(BaseChannel):
                 )
             except Exception:
                 pass
+            # Clear upload context
+            if workspace_dir:
+                from andino.channels.slack_upload import clear_upload_context
+
+                clear_upload_context(workspace_dir)
 
         response_text = self._format(response_text)
 

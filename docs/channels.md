@@ -43,6 +43,35 @@ When the agent starts working on a message, an ⏳ reaction is added to the user
 
 > **Note:** Requires `reactions:write` scope in the Slack App configuration.
 
+### File uploads
+
+Agents can upload files from their workspace to the Slack thread using the `slack_upload_file` tool. This requires workspace to be enabled.
+
+**Setup:**
+
+```yaml
+workspace:
+  enabled: true
+
+tools:
+  - andino.channels.slack_upload:slack_upload_file
+  - strands_tools.file_write:file_write    # so the agent can create files
+```
+
+**How it works:**
+
+1. The Slack channel registers upload context (client, channel, thread) before each task
+2. The agent creates a file in its workspace (e.g. via `file_write` or `shell`)
+3. The agent calls `slack_upload_file(file_path="/workspace/report.csv", comment="Here's the report")`
+4. The file appears as an attachment in the Slack thread
+
+The tool supports:
+- Absolute paths within the workspace directory
+- Relative paths (resolved against the workspace root)
+- Optional comment attached to the upload
+- Size limit of 50 MB per file
+- Graceful error handling (file not found, empty file, upload failure)
+
 ### HITL in Slack
 
 When [HITL](hitl.md) is configured, tool approval requests are sent as interactive Slack messages with Approve/Deny buttons. After a user responds, the buttons are replaced with a resolution status showing who approved or denied. See [HITL Guide](hitl.md) for details.

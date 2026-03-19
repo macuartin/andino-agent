@@ -1,5 +1,12 @@
 """Andino built-in tools."""
 
+from andino.tools.confluence import (
+    confluence_create_page,
+    confluence_get_page,
+    confluence_list_spaces,
+    confluence_search,
+    confluence_update_page,
+)
 from andino.tools.apollo import (
     apollo_enrich_organization,
     apollo_enrich_person,
@@ -30,6 +37,11 @@ from andino.tools.lusha import (
 )
 
 __all__ = [
+    "confluence_create_page",
+    "confluence_get_page",
+    "confluence_list_spaces",
+    "confluence_search",
+    "confluence_update_page",
     "apollo_enrich_organization",
     "apollo_enrich_person",
     "apollo_search_contacts",

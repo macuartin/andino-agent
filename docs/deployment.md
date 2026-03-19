@@ -2,216 +2,309 @@
 
 For installation, CLI usage, and ANDINO_HOME setup, see [Getting Started](getting-started.md).
 
-## Host Deployment (Bare Metal / VM)
+## Multi-Agent Architecture
 
-### Install
+Each Andino agent runs as an **independent process** with its own HTTP server, port, and optional Slack channel. Multiple agents on one server share `ANDINO_HOME` (`~/.andino/`) but are otherwise isolated.
+
+```
+                         ┌─────────────────────────┐
+                         │  Reverse Proxy (Nginx)   │
+                         │  agents.company.com      │
+                         └──────┬──────┬──────┬─────┘
+                                │      │      │
+                    ┌───────────┘      │      └───────────┐
+                    ▼                  ▼                  ▼
+            ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+            │  researcher  │  │  prospector   │  │     sre      │
+            │  :8105       │  │  :8110        │  │  :8120       │
+            └──────────────┘  └──────────────┘  └──────────────┘
+                    │                  │                  │
+                    └──────────┬───────┘──────────────────┘
+                               ▼
+                         ~/.andino/
+                         ├── .env (shared secrets)
+                         ├── agents/
+                         ├── sessions/
+                         └── workspaces/
+```
+
+---
+
+## Option 1: Host Deployment (systemd)
+
+Best for: VMs, bare metal servers, single-machine setups.
+
+### Setup
 
 ```bash
+# 1. Install
 python3 -m venv ~/.local/share/andino/venv
 source ~/.local/share/andino/venv/bin/activate
-pip install andino-agent[bedrock]
-```
+pip install andino-agent[all]
 
-### Create and configure an agent
+# 2. Create agents from templates
+andino init researcher -t researcher
+andino init prospector -t prospector
+andino init sre -t sre
 
-```bash
-andino init researcher
-vim ~/.andino/agents/researcher/agent.yaml
+# 3. Configure each agent
 vim ~/.andino/agents/researcher/.env
+vim ~/.andino/agents/prospector/.env
+vim ~/.andino/agents/sre/.env
+
+# 4. Validate before deploying
+andino validate researcher
+andino validate prospector
+andino validate sre
 ```
 
-### Run with systemd (recommended)
+### systemd services
 
 ```bash
-# Install the systemd user unit
+# Install the unit template (one-time)
 mkdir -p ~/.config/systemd/user
 cp deploy/andino@.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 
-# Start the agent
-systemctl --user start andino@researcher
+# Enable and start all agents
+for agent in researcher prospector sre; do
+  systemctl --user enable andino@$agent
+  systemctl --user start andino@$agent
+done
 
-# Enable on login
-systemctl --user enable andino@researcher
-
-# View logs
-journalctl --user -u andino@researcher -f
-
-# Manage
-systemctl --user status andino@researcher
-systemctl --user restart andino@researcher
-systemctl --user stop andino@researcher
-```
-
-### Enable lingering (keep running after logout)
-
-```bash
+# Keep running after logout
 loginctl enable-linger $USER
 ```
 
-This allows user services to keep running even when you log out.
-
-## Local Development
+### Managing agents
 
 ```bash
-cd andino-agent
-pip install -e ".[bedrock]"
-andino run ./examples/researcher/agent.yaml
+# Status
+systemctl --user status andino@researcher
+
+# Logs
+journalctl --user -u andino@researcher -f
+
+# Restart after config change
+systemctl --user restart andino@researcher
+
+# Stop
+systemctl --user stop andino@prospector
+
+# View all andino services
+systemctl --user list-units 'andino@*'
 ```
 
-## Docker
+### Reverse proxy (Nginx)
 
-Each agent is a standalone container. The Dockerfile pattern:
+```nginx
+# /etc/nginx/sites-available/andino
+server {
+    listen 80;
+    server_name agents.company.com;
+
+    location /researcher/ {
+        proxy_pass http://127.0.0.1:8105/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /prospector/ {
+        proxy_pass http://127.0.0.1:8110/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /sre/ {
+        proxy_pass http://127.0.0.1:8120/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/andino /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+
+# For TLS, add certbot:
+# sudo certbot --nginx -d agents.company.com
+```
+
+Now agents are accessible at:
+- `https://agents.company.com/researcher/task`
+- `https://agents.company.com/prospector/task`
+- `https://agents.company.com/sre/health`
+
+---
+
+## Option 2: Docker Compose
+
+Best for: reproducible deployments, CI/CD pipelines, team environments.
+
+### Dockerfile
+
+One Dockerfile for all agents — the agent config is mounted at runtime:
 
 ```dockerfile
+# deploy/Dockerfile
 FROM python:3.12-slim
 WORKDIR /app
 
-# Install SDK
 COPY pyproject.toml /sdk/
 COPY src/ /sdk/src/
-RUN pip install --no-cache-dir /sdk[bedrock] && rm -rf /sdk
+RUN pip install --no-cache-dir /sdk[all] && rm -rf /sdk
 
-# Copy agent config
-COPY examples/researcher/ .
-
-CMD ["python", "-m", "andino", "agent.yaml"]
+# Agent config is mounted via volume
+CMD ["andino", "run", "./agent.yaml"]
 ```
 
-Build context must be the repo root so both `andino-agent/` and `examples/` are accessible.
-
-## Docker Compose
+### docker-compose.yml
 
 ```yaml
-# docker-compose.agents.yml
+# deploy/docker-compose.yml
 services:
   researcher:
     build:
-      context: .
-      dockerfile: examples/researcher/Dockerfile
+      context: ..
+      dockerfile: deploy/Dockerfile
     ports:
-      - "8101:8101"
-    env_file:
-      - .env
-
-  architect:
-    build:
-      context: .
-      dockerfile: examples/architect/Dockerfile
-    ports:
-      - "8102:8102"
-    env_file:
-      - .env
-
-  coder:
-    build:
-      context: .
-      dockerfile: examples/coder/Dockerfile
-    ports:
-      - "8103:8103"
-    env_file:
-      - .env
-
-  reviewer:
-    build:
-      context: .
-      dockerfile: examples/reviewer/Dockerfile
-    ports:
-      - "8104:8104"
-    env_file:
-      - .env
-```
-
-### Commands
-
-```bash
-# Build all agents
-docker compose -f docker-compose.agents.yml build
-
-# Start all agents
-docker compose -f docker-compose.agents.yml up -d
-
-# Start one agent
-docker compose -f docker-compose.agents.yml up researcher -d
-
-# View logs
-docker compose -f docker-compose.agents.yml logs researcher -f
-
-# Rebuild after SDK changes
-docker compose -f docker-compose.agents.yml build researcher
-docker compose -f docker-compose.agents.yml up researcher -d
-```
-
-## Session Persistence
-
-If using sessions, mount a volume for the storage directory:
-
-```yaml
-services:
-  researcher:
+      - "8105:8105"
     volumes:
-      - researcher-sessions:/app/.sessions
+      - ./agents/researcher:/app
+      - andino-data:/data
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  prospector:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8110:8110"
+    volumes:
+      - ./agents/prospector:/app
+      - andino-data:/data
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  sre:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8120:8120"
+    volumes:
+      - ./agents/sre:/app
+      - andino-data:/data
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - researcher
+      - prospector
+      - sre
+    restart: unless-stopped
 
 volumes:
-  researcher-sessions:
+  andino-data:
 ```
 
-Or configure a custom path in `agent.yaml`:
+### Setup
+
+```bash
+cd deploy/
+
+# 1. Initialize agent configs
+for agent in researcher prospector sre; do
+  andino init tmp-$agent -t $agent
+  mkdir -p agents/$agent
+  cp -r ~/.andino/agents/tmp-$agent/* agents/$agent/
+done
+
+# 2. Create shared .env
+cp ../.env.example .env
+vim .env
+
+# 3. Update agent.yaml paths for Docker volumes
+# Set session.storage_dir and workspace.base_dir to /data/...
+
+# 4. Build and start
+docker compose build
+docker compose up -d
+
+# 5. View logs
+docker compose logs -f
+```
+
+### Persistent data
+
+Use absolute paths in agent.yaml for Docker deployments:
 
 ```yaml
 session:
   storage_dir: /data/sessions
+workspace:
+  base_dir: /data/workspaces
 ```
 
-## Creating a New Agent
+The `andino-data` volume is shared across all agents. Each agent scopes its data by session_id.
 
-### Host deployment
-
-```bash
-andino init my-agent
-vim ~/.andino/agents/my-agent/agent.yaml
-vim ~/.andino/agents/my-agent/system_prompt.md
-andino run my-agent
-```
-
-### Docker deployment
-
-1. Create the agent directory and config:
-```bash
-mkdir examples/my-agent
-```
-
-2. Write `agent.yaml` and `system_prompt.md`.
-
-3. Write `Dockerfile`:
-```dockerfile
-FROM python:3.12-slim
-WORKDIR /app
-COPY pyproject.toml /sdk/
-COPY src/ /sdk/src/
-RUN pip install --no-cache-dir /sdk[bedrock] && rm -rf /sdk
-COPY examples/my-agent/ .
-CMD ["andino", "run", "./agent.yaml"]
-```
-
-4. Add to `docker-compose.agents.yml`:
-```yaml
-  my-agent:
-    build:
-      context: .
-      dockerfile: examples/my-agent/Dockerfile
-    ports:
-      - "8105:8105"
-    env_file:
-      - .env
-```
+---
 
 ## Port Conventions
 
-| Agent | Port |
-|---|---|
-| researcher | 8101 |
-| architect | 8102 |
-| coder | 8103 |
-| reviewer | 8104 |
-| (next agent) | 8105+ |
+| Template | Default Port |
+|----------|-------------|
+| blank | 8100 |
+| researcher | 8105 |
+| prospector | 8110 |
+| sre | 8120 |
+
+Each agent must use a unique port. Set in `agent.yaml` → `server.port`.
+
+---
+
+## Adding a New Agent
+
+### Host (systemd)
+
+```bash
+andino init my-agent -t blank
+vim ~/.andino/agents/my-agent/agent.yaml
+andino validate my-agent
+systemctl --user enable andino@my-agent
+systemctl --user start andino@my-agent
+```
+
+### Docker
+
+```bash
+mkdir deploy/agents/my-agent
+# Add agent.yaml + system_prompt.md + skills/
+# Add service to docker-compose.yml
+docker compose up my-agent -d
+```
+
+---
+
+## Health Checks
+
+All agents expose `/health` without authentication:
+
+```bash
+for port in 8105 8110 8120; do
+  curl -s http://localhost:$port/health | jq -r '.agent_name + ": " + .status'
+done
+```

@@ -12,16 +12,24 @@ pip install andino-agent[all]          # All providers + Slack
 ## CLI
 
 ```bash
-andino run <name>              # Run agent by name (~/.andino/agents/<name>/agent.yaml)
-andino run ./path/agent.yaml   # Run agent from a path (backward compatible)
-andino init <name>             # Scaffold a new agent in ~/.andino/agents/<name>/
-andino list                    # List agents in ~/.andino/agents/
-andino --version               # Show version
+andino run <name>                         # Run agent by name
+andino run ./path/agent.yaml              # Run from a path (backward compatible)
+andino init <name>                        # Scaffold a new agent
+andino list                               # List agents in ~/.andino/agents/
+andino validate <name>                    # Validate config without running
+andino info <name>                        # Show agent config details
+andino task <name> "prompt"               # Send task to a running agent
+andino --version                          # Show version
 ```
 
 Options for `andino run`:
 - `--log-level debug|info|warning|error` (default: `info`)
 - `--log-file /path/to/file.log` (log to file in addition to stdout)
+
+Options for `andino task`:
+- `--session <id>` — session ID for conversation persistence
+- `--timeout <secs>` — max wait time (default: from agent config)
+- `--json` — output raw JSON instead of text
 
 ## ANDINO_HOME
 

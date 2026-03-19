@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from unittest.mock import patch
 
-from andino.__main__ import _build_parser, _resolve_config_path
+from typer.testing import CliRunner
+
+from andino.__main__ import _resolve_config_path, app
 from andino.service import configure_logging
+
+runner = CliRunner()
 
 
 class TestResolveConfigPath:
@@ -26,31 +31,107 @@ class TestResolveConfigPath:
         assert result == Path("/opt/andino/agents/researcher/agent.yaml")
 
 
-class TestBuildParser:
-    def test_run_subcommand(self):
-        parser = _build_parser()
-        args = parser.parse_args(["run", "researcher"])
-        assert args.command == "run"
-        assert args.agent == "researcher"
-        assert args.log_level == "info"
-        assert args.log_file is None
+class TestTyperCommands:
+    def test_help(self):
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "run" in result.output
+        assert "init" in result.output
+        assert "list" in result.output
+        assert "validate" in result.output
+        assert "info" in result.output
+        assert "task" in result.output
 
-    def test_run_with_options(self):
-        parser = _build_parser()
-        args = parser.parse_args(["run", "researcher", "--log-level", "debug", "--log-file", "/tmp/test.log"])
-        assert args.log_level == "debug"
-        assert args.log_file == "/tmp/test.log"
+    def test_version(self):
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert "andino" in result.output
 
-    def test_init_subcommand(self):
-        parser = _build_parser()
-        args = parser.parse_args(["init", "my-agent"])
-        assert args.command == "init"
-        assert args.name == "my-agent"
+    def test_list_no_agents(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        result = runner.invoke(app, ["list"])
+        assert result.exit_code == 0
+        assert "No agents" in result.output
 
-    def test_list_subcommand(self):
-        parser = _build_parser()
-        args = parser.parse_args(["list"])
-        assert args.command == "list"
+    def test_list_with_agents(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        agent_dir = tmp_path / "agents" / "test-agent"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "agent.yaml").write_text("name: test-agent\n")
+        result = runner.invoke(app, ["list"])
+        assert result.exit_code == 0
+        assert "test-agent" in result.output
+
+    def test_init_creates_agent(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        result = runner.invoke(app, ["init", "my-agent"])
+        assert result.exit_code == 0
+        assert "my-agent" in result.output
+        assert (tmp_path / "agents" / "my-agent" / "agent.yaml").is_file()
+        assert (tmp_path / "agents" / "my-agent" / "system_prompt.md").is_file()
+        assert (tmp_path / "agents" / "my-agent" / "skills" / "example" / "SKILL.md").is_file()
+
+    def test_init_rejects_existing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        (tmp_path / "agents" / "dup").mkdir(parents=True)
+        result = runner.invoke(app, ["init", "dup"])
+        assert result.exit_code == 1
+
+    def test_run_missing_config(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        result = runner.invoke(app, ["run", "nonexistent"])
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_validate_missing_config(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        result = runner.invoke(app, ["validate", "nonexistent"])
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_info_missing_config(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        result = runner.invoke(app, ["info", "nonexistent"])
+        assert result.exit_code == 1
+
+    def test_validate_valid_config(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        config = tmp_path / "agent.yaml"
+        config.write_text(
+            "name: test\nmodel:\n  provider: bedrock\ntools: []\nserver:\n  port: 8100\n",
+            encoding="utf-8",
+        )
+        result = runner.invoke(app, ["validate", str(config)])
+        assert result.exit_code == 0
+        assert "valid" in result.output
+        assert "passed" in result.output
+
+    def test_info_shows_config(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        config = tmp_path / "agent.yaml"
+        config.write_text(
+            "name: researcher\nversion: '2.0.0'\ndescription: 'Test agent'\n"
+            "model:\n  provider: bedrock\n  model_id: claude-sonnet\n  max_tokens: 4096\n"
+            "tools:\n  - strands_tools.http_request:http_request\n"
+            "server:\n  port: 8101\n",
+            encoding="utf-8",
+        )
+        result = runner.invoke(app, ["info", str(config)])
+        assert result.exit_code == 0
+        assert "researcher" in result.output
+        assert "2.0.0" in result.output
+        assert "bedrock" in result.output
+
+    def test_task_agent_not_running(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANDINO_HOME", str(tmp_path))
+        config = tmp_path / "agent.yaml"
+        config.write_text(
+            "name: test\nmodel:\n  provider: bedrock\ntools: []\nserver:\n  host: '127.0.0.1'\n  port: 59999\n",
+            encoding="utf-8",
+        )
+        result = runner.invoke(app, ["task", str(config), "hello"])
+        assert result.exit_code == 1
+        assert "connect" in result.output.lower() or "running" in result.output.lower()
 
 
 class TestConfigureLogging:

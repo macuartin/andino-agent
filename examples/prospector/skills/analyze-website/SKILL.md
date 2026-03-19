@@ -1,3 +1,7 @@
+---
+name: analyze-website
+description: "Deep analysis of a company's website to detect payment capabilities, technology stack, business model, and current payment processor."
+---
 # Analyze Website
 
 Deep analysis of a company's website to detect payment capabilities, technology stack, business model, and current payment processor.

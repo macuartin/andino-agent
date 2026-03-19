@@ -1,3 +1,7 @@
+---
+name: prospect-account
+description: "Full prospecting workflow for a single company. Validates ICP, analyzes website, enriches contacts, and generates a research brief."
+---
 # Prospect Account
 
 Full prospecting workflow for a single company. Validates ICP, analyzes website, enriches contacts, and generates a research brief.

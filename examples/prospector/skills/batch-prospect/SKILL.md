@@ -1,3 +1,7 @@
+---
+name: batch-prospect
+description: "Process a list of companies through the full prospecting workflow. Each company is analyzed using the prospect-account skill."
+---
 # Batch Prospect
 
 Process a list of companies through the full prospecting workflow. Each company is analyzed using the prospect-account skill.

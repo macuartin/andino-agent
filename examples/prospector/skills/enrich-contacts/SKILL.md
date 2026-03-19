@@ -1,3 +1,7 @@
+---
+name: enrich-contacts
+description: "Find and enrich at least 2 decision-maker contacts for a company. Uses Apollo for search and email enrichment, Lusha for phone numbers."
+---
 # Enrich Contacts
 
 Find and enrich at least 2 decision-maker contacts for a company. Uses Apollo for search and email enrichment, Lusha for phone numbers.

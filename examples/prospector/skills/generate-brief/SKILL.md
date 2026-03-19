@@ -1,3 +1,7 @@
+---
+name: generate-brief
+description: "Generate a standardized research brief for the BDR team from collected prospecting data. The brief is saved as a markdown file in the workspace."
+---
 # Generate Brief
 
 Generate a standardized research brief for the BDR team from collected prospecting data. The brief is saved as a markdown file in the workspace.

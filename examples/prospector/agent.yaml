@@ -1,0 +1,57 @@
+name: prospector
+version: "1.0.0"
+description: "AI Prospecting Agent for BDR team — identifies ICP companies, enriches contacts, analyzes websites, and generates research briefs"
+
+model:
+  provider: bedrock
+  model_id: us.anthropic.claude-sonnet-4-6
+  max_tokens: 8192
+
+system_prompt: ./system_prompt.md
+
+tools:
+  - strands_tools.http_request:http_request
+  - strands_tools.file_read:file_read
+  - strands_tools.file_write:file_write
+  - andino.tools.apollo:apollo_search_people
+  - andino.tools.apollo:apollo_enrich_person
+  - andino.tools.apollo:apollo_enrich_organization
+  - andino.tools.apollo:apollo_search_contacts
+  - andino.tools.lusha:lusha_enrich_person
+  - andino.tools.lusha:lusha_enrich_company
+  - andino.tools.lusha:lusha_search_contacts
+
+skills:
+  - ./skills/prospect-account
+  - ./skills/analyze-website
+  - ./skills/enrich-contacts
+  - ./skills/generate-brief
+  - ./skills/batch-prospect
+
+channels:
+  slack:
+    enabled: true
+    mode: socket
+    app_token: ${SLACK_APP_TOKEN}
+    bot_token: ${SLACK_BOT_TOKEN}
+    require_mention: true
+
+server:
+  host: "0.0.0.0"
+  port: 8110
+  api_key: ${ANDINO_API_KEY}
+
+hitl:
+  require_approval: []
+
+workspace:
+  enabled: true
+  base_dir: .workspaces
+
+limits:
+  max_concurrent_tasks: 3
+  task_timeout_seconds: 900
+
+session:
+  storage_dir: .sessions
+  max_pool_size: 50

@@ -200,12 +200,12 @@ async def jira_search_issues(jql: str, max_results: int = 20) -> dict:
     """
     max_results = min(max_results, 50)
     ok, data = await _jira_request(
-        "GET",
-        "search",
-        params={
+        "POST",
+        "search/jql",
+        json={
             "jql": jql,
             "maxResults": max_results,
-            "fields": "key,summary,status,assignee,priority",
+            "fields": ["key", "summary", "status", "assignee", "priority"],
         },
     )
     if not ok:

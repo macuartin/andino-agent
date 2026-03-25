@@ -245,7 +245,7 @@ class TestJiraSearchIssues:
         mock_jira_request.return_value = (True, {"total": 0, "issues": []})
         await jira_search_issues("project = AD", max_results=100)
         call_params = mock_jira_request.call_args
-        assert call_params[1]["params"]["maxResults"] == 50
+        assert call_params[1]["json"]["maxResults"] == 50
 
 
 class TestJiraAssignIssue:

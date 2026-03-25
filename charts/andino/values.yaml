@@ -1,0 +1,106 @@
+# -- Agent identity
+agent:
+  # -- Agent name (used in labels, ConfigMap, and `andino run <name>`)
+  name: my-agent
+  # -- Namespace override. Defaults to andino-{agent.name}
+  namespace: ""
+
+# -- Container image
+image:
+  repository: ghcr.io/andino-inc/andino-agent
+  tag: latest
+  pullPolicy: Always
+
+# -- Agent configuration rendered into a ConfigMap
+config:
+  # -- Full agent.yaml content
+  agentYaml: |
+    name: my-agent
+    model:
+      provider: bedrock
+      model_id: us.anthropic.claude-sonnet-4-6
+      max_tokens: 4096
+    system_prompt: ./system_prompt.md
+    tools: []
+    server:
+      host: "0.0.0.0"
+      port: 8100
+      api_key: ${ANDINO_API_KEY}
+    limits:
+      max_concurrent_tasks: 1
+      task_timeout_seconds: 600
+    session:
+      storage_dir: /data/sessions
+    workspace:
+      enabled: true
+      base_dir: /data/workspaces
+
+  # -- System prompt content (rendered as system_prompt.md)
+  systemPrompt: ""
+
+  # -- Skills map: skill-name → SKILL.md content
+  # @default -- `{}`
+  skills: {}
+
+# -- Kubernetes Service
+service:
+  port: 80
+  targetPort: 8100
+
+# -- ALB Ingress
+ingress:
+  enabled: true
+  className: aws-alb
+  # -- Hostname for the agent (e.g. andino-sre.ops.company.com)
+  host: ""
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+  # -- ACM certificate ARN for TLS termination
+  certificateArn: ""
+
+# -- ExternalSecret (AWS Parameter Store)
+secrets:
+  enabled: true
+  # -- SecretStore name (must exist in namespace or be a ClusterSecretStore)
+  store: parameter-store
+  refreshInterval: 1h
+  # -- List of secret key mappings
+  # @default -- `[{secretKey: "ANDINO_API_KEY", remoteKey: ""}]`
+  keys: []
+
+# -- ServiceAccount with optional IRSA
+serviceAccount:
+  create: true
+  # -- Annotations (e.g. eks.amazonaws.com/role-arn for IRSA)
+  annotations: {}
+
+# -- EFS persistent storage for sessions, workspaces, and agent data
+persistence:
+  enabled: true
+  storageClassName: efs-sc
+  accessMode: ReadWriteMany
+  size: 10Gi
+
+# -- Container resources
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+# -- Health probes
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 30
+  readiness:
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 10

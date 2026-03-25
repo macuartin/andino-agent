@@ -1,0 +1,124 @@
+# Example values for deploying the SRE agent
+agent:
+  name: sre
+
+image:
+  tag: "0.1.0"
+
+config:
+  agentYaml: |
+    name: sre
+    model:
+      provider: bedrock
+      model_id: us.anthropic.claude-sonnet-4-6
+      max_tokens: 8192
+    system_prompt: ./system_prompt.md
+    tools:
+      - andino.tools.datadog:datadog_search_logs
+      - andino.tools.datadog:datadog_query_metrics
+      - andino.tools.datadog:datadog_list_monitors
+      - andino.tools.datadog:datadog_get_monitor
+      - andino.tools.datadog:datadog_search_traces
+      - andino.tools.datadog:datadog_list_events
+      - andino.tools.jira:jira_search_issues
+      - andino.tools.jira:jira_get_issue
+      - andino.tools.jira:jira_create_issue
+      - andino.tools.jira:jira_add_comment
+      - andino.tools.jira:jira_transition_issue
+      - andino.tools.jira:jira_assign_issue
+      - andino.tools.confluence:confluence_search
+      - andino.tools.confluence:confluence_get_page
+      - strands_tools.shell:shell
+      - strands_tools.http_request:http_request
+    server:
+      host: "0.0.0.0"
+      port: 8120
+      api_key: ${ANDINO_API_KEY}
+    hitl:
+      require_approval:
+        - shell
+    skills:
+      - ./skills/investigate-incident
+      - ./skills/create-incident
+      - ./skills/diagnose-service
+      - ./skills/escalate
+      - ./skills/review-code
+    channels:
+      slack:
+        enabled: true
+        mode: socket
+        app_token: ${SLACK_APP_TOKEN}
+        bot_token: ${SLACK_BOT_TOKEN}
+    workspace:
+      enabled: true
+      base_dir: /data/workspaces
+    session:
+      storage_dir: /data/sessions
+    limits:
+      max_concurrent_tasks: 2
+      task_timeout_seconds: 900
+
+  systemPrompt: |
+    # SRE On-Call Agent
+    You are an autonomous SRE agent that helps investigate incidents,
+    diagnose services, and manage the on-call workflow.
+    See skills for structured workflows.
+
+  skills:
+    investigate-incident: |
+      Investigate an incident by correlating logs, metrics, and traces.
+      Use Datadog tools to search for anomalies.
+    create-incident: |
+      Create a Jira incident ticket with proper severity classification.
+    diagnose-service: |
+      Run health checks against a service using Datadog metrics and traces.
+    escalate: |
+      Post structured updates to Slack with severity and impact summary.
+    review-code: |
+      Review a PR using gh CLI. Clone to workspace, analyze diff, post comments.
+
+service:
+  targetPort: 8120
+
+ingress:
+  host: andino-sre.ops.company.com
+  certificateArn: ""  # Set your ACM cert ARN
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/group.name: andino
+
+secrets:
+  region: us-east-1
+  keys:
+    - secretKey: ANDINO_API_KEY
+      remoteKey: /andino/sre/ANDINO_API_KEY
+    - secretKey: SLACK_APP_TOKEN
+      remoteKey: /andino/sre/SLACK_APP_TOKEN
+    - secretKey: SLACK_BOT_TOKEN
+      remoteKey: /andino/sre/SLACK_BOT_TOKEN
+    - secretKey: DD_API_KEY
+      remoteKey: /andino/sre/DD_API_KEY
+    - secretKey: DD_APP_KEY
+      remoteKey: /andino/sre/DD_APP_KEY
+    - secretKey: JIRA_BASE_URL
+      remoteKey: /andino/sre/JIRA_BASE_URL
+    - secretKey: JIRA_USER_EMAIL
+      remoteKey: /andino/sre/JIRA_USER_EMAIL
+    - secretKey: JIRA_API_TOKEN
+      remoteKey: /andino/sre/JIRA_API_TOKEN
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: ""  # Set your IRSA role ARN
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi

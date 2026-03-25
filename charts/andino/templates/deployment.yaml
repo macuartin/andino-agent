@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "andino.name" . }}
+  namespace: {{ include "andino.namespace" . }}
+  labels:
+    {{- include "andino.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "andino.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "andino.selectorLabels" . | nindent 8 }}
+      annotations:
+        {{- include "andino.configChecksum" . | nindent 8 }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "andino.serviceAccountName" . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: init-config
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              AGENT_DIR=/data/agents/{{ .Values.agent.name }}
+              mkdir -p "$AGENT_DIR" /data/sessions /data/workspaces
+
+              # Copy agent config from ConfigMap
+              cp /etc/andino/agent.yaml "$AGENT_DIR/agent.yaml"
+              if [ -f /etc/andino/system_prompt.md ]; then
+                cp /etc/andino/system_prompt.md "$AGENT_DIR/system_prompt.md"
+              fi
+
+              # Copy skills from ConfigMap (if any)
+              {{- if .Values.config.skills }}
+              {{- range $name, $_ := .Values.config.skills }}
+              mkdir -p "$AGENT_DIR/skills/{{ $name }}"
+              cp "/etc/andino/skills/{{ $name }}.md" "$AGENT_DIR/skills/{{ $name }}/SKILL.md"
+              {{- end }}
+              {{- end }}
+
+              echo "Config initialized for agent: {{ .Values.agent.name }}"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /etc/andino
+              readOnly: true
+            {{- if .Values.config.skills }}
+            - name: skills
+              mountPath: /etc/andino/skills
+              readOnly: true
+            {{- end }}
+          resources: {}
+      containers:
+        - name: {{ include "andino.name" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - andino
+            - run
+            - {{ .Values.agent.name }}
+          env:
+            - name: ANDINO_HOME
+              value: /data
+            - name: AWS_REGION
+              value: {{ .Values.secrets.region | default "us-east-1" }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.secrets.region | default "us-east-1" }}
+          {{- if and .Values.secrets.enabled .Values.secrets.keys }}
+          envFrom:
+            - secretRef:
+                name: {{ include "andino.name" . }}-secrets
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "andino.name" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: config
+          configMap:
+            name: {{ include "andino.name" . }}-config
+        {{- if .Values.config.skills }}
+        - name: skills
+          configMap:
+            name: {{ include "andino.name" . }}-skills
+        {{- end }}

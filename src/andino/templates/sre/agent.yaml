@@ -24,11 +24,16 @@ tools:
   - andino.tools.jira:jira_add_comment
   - andino.tools.jira:jira_transition_issue
   - andino.tools.jira:jira_assign_issue
+  # Knowledge base (Confluence)
+  - andino.tools.confluence:confluence_search
+  - andino.tools.confluence:confluence_get_page
   # General
   - strands_tools.http_request:http_request
   - strands_tools.file_read:file_read
   - strands_tools.file_write:file_write
   - strands_tools.shell:shell
+  # Slack file sharing
+  - andino.channels.slack_upload:slack_upload_file
 
 skills:
   - ./skills/investigate-incident
@@ -51,8 +56,12 @@ server:
   api_key: ${ANDINO_API_KEY}
 
 hitl:
-  require_approval:
-    - shell
+  require_approval: []
+
+conversation:
+  manager: sliding_window
+  window_size: 10
+  should_truncate_results: true
 
 workspace:
   enabled: true
@@ -60,7 +69,7 @@ workspace:
 
 limits:
   max_concurrent_tasks: 5
-  task_timeout_seconds: 600
+  task_timeout_seconds: 900
 
 session:
   storage_dir: .sessions

@@ -1,119 +1,241 @@
-# Example values for deploying the SRE agent
+# SRE Agent — production values for EKS deployment
 agent:
   name: sre
+  namespace: andino-sre
 
 image:
-  tag: "0.1.0"
+  repository: ghcr.io/andino-inc/andino-agent
+  tag: "0.3.0"
+  pullPolicy: Always
 
 config:
   agentYaml: |
     name: sre
+    version: "1.0.0"
+    description: "SRE Agent — incident response, service diagnosis, and escalation"
+
     model:
       provider: bedrock
       model_id: us.anthropic.claude-sonnet-4-6
       max_tokens: 8192
+
     system_prompt: ./system_prompt.md
+
     tools:
+      # Observability (Datadog)
       - andino.tools.datadog:datadog_search_logs
       - andino.tools.datadog:datadog_query_metrics
       - andino.tools.datadog:datadog_list_monitors
       - andino.tools.datadog:datadog_get_monitor
       - andino.tools.datadog:datadog_search_traces
       - andino.tools.datadog:datadog_list_events
+      # Incident management (Jira)
+      - andino.tools.jira:jira_create_issue
       - andino.tools.jira:jira_search_issues
       - andino.tools.jira:jira_get_issue
-      - andino.tools.jira:jira_create_issue
       - andino.tools.jira:jira_add_comment
       - andino.tools.jira:jira_transition_issue
       - andino.tools.jira:jira_assign_issue
+      # Knowledge base (Confluence)
       - andino.tools.confluence:confluence_search
       - andino.tools.confluence:confluence_get_page
-      - strands_tools.shell:shell
+      # General
       - strands_tools.http_request:http_request
-    server:
-      host: "0.0.0.0"
-      port: 8120
-      api_key: ${ANDINO_API_KEY}
-    hitl:
-      require_approval:
-        - shell
+      - strands_tools.file_read:file_read
+      - strands_tools.file_write:file_write
+      - strands_tools.shell:shell
+      # Slack file sharing
+      - andino.channels.slack_upload:slack_upload_file
+
     skills:
       - ./skills/investigate-incident
       - ./skills/create-incident
       - ./skills/diagnose-service
       - ./skills/escalate
       - ./skills/review-code
+
     channels:
       slack:
         enabled: true
         mode: socket
         app_token: ${SLACK_APP_TOKEN}
         bot_token: ${SLACK_BOT_TOKEN}
+        require_mention: true
+
+    server:
+      host: "0.0.0.0"
+      port: 8120
+      api_key: ${ANDINO_API_KEY}
+
+    hitl:
+      require_approval: []
+
+    conversation:
+      manager: sliding_window
+      window_size: 10
+      should_truncate_results: true
+
     workspace:
       enabled: true
       base_dir: /data/workspaces
+
     session:
       storage_dir: /data/sessions
+      max_pool_size: 50
+
     limits:
-      max_concurrent_tasks: 2
+      max_concurrent_tasks: 5
       task_timeout_seconds: 900
 
-  systemPrompt: |
-    # SRE On-Call Agent
-    You are an autonomous SRE agent that helps investigate incidents,
-    diagnose services, and manage the on-call workflow.
-    See skills for structured workflows.
+  # systemPrompt is loaded from the template's system_prompt.md at build time.
+  # Override here only if you need deployment-specific customizations.
+  systemPrompt: ""
 
   skills:
     investigate-incident: |
-      Investigate an incident by correlating logs, metrics, and traces.
-      Use Datadog tools to search for anomalies.
+      ---
+      name: investigate-incident
+      description: "Full incident investigation — correlate logs, metrics, traces, and events to build a timeline and identify root cause"
+      ---
+      # Investigate Incident
+
+      ## Arguments
+      - `$0` (required): Alert name, service name, or description of the issue
+
+      ## Steps
+      1. **Identify the affected service and timeframe** — parse the alert, set 30-minute window
+      2. **Check active monitors** — `datadog_list_monitors` + `datadog_get_monitor`
+      3. **Search error logs** — `datadog_search_logs` with `service:<name> status:error`
+      4. **Query key metrics** — error rate, latency p99, throughput, CPU, memory
+      5. **Search error traces** — `datadog_search_traces` with `service:<name> status:error`
+      6. **Check recent events** — `datadog_list_events` for deploys, config changes
+      7. **Build timeline** — correlate findings chronologically, identify trigger
+      8. **Write investigation report** — `file_write` to workspace
+      9. **Report findings** — summarize and recommend next steps
+
     create-incident: |
-      Create a Jira incident ticket with proper severity classification.
+      ---
+      name: create-incident
+      description: "Create or update a Jira incident ticket with severity, findings, and assignment"
+      ---
+      # Create Incident
+
+      ## Arguments
+      - `$0` (required): Service name and brief description
+      - `severity` (optional): SEV1-SEV4 (default: infer)
+      - `project` (optional): Jira project key (default: OPS)
+
+      ## Steps
+      1. **Check for existing incident** — `jira_search_issues` to avoid duplicates
+      2. **Determine severity** — from context or error rate
+      3. **Map severity to Jira priority** — SEV1=Highest, SEV2=High, etc.
+      4. **Create Jira issue** — `jira_create_issue` with severity tag
+      5. **Update existing** (if found) — `jira_add_comment`
+      6. **Assign** — `jira_assign_issue` if assignee provided
+      7. **Report** — confirm Jira key and suggest next steps
+
     diagnose-service: |
-      Run health checks against a service using Datadog metrics and traces.
+      ---
+      name: diagnose-service
+      description: "Health check a specific service — latency, error rate, throughput, logs, and monitor status"
+      ---
+      # Diagnose Service
+
+      ## Arguments
+      - `$0` (required): Service name
+      - `endpoint` (optional): Health check URL
+
+      ## Steps
+      1. **HTTP health check** — `http_request` GET (if endpoint provided)
+      2. **Check monitors** — `datadog_list_monitors` filtered by service
+      3. **Query current metrics** (last 15 min) — latency, error rate, throughput, CPU, memory
+      4. **Query baseline** (7 days ago) — same metrics for comparison
+      5. **Search recent logs** — `datadog_search_logs` errors and warnings
+      6. **Determine health** — Healthy / Degraded / Down based on thresholds
+      7. **Report diagnosis** — structured summary with current vs baseline
+
     escalate: |
-      Post structured updates to Slack with severity and impact summary.
+      ---
+      name: escalate
+      description: "Send a structured escalation message via Slack with severity, impact, and actions taken"
+      ---
+      # Escalate
+
+      ## Arguments
+      - `$0` (required): Brief description
+      - `severity` (required): SEV1-SEV4
+      - `service` (required): Affected service
+      - `jira_key` (optional): Jira issue key
+
+      ## Steps
+      1. **Gather context** — timeline, impact, root cause, actions taken
+      2. **Format message** — SEV1/2: full escalation with timeline; SEV3/4: brief summary
+      3. **Post in Slack** — reply in current thread
+      4. **Update Jira** — `jira_add_comment` with escalation summary
+
     review-code: |
-      Review a PR using gh CLI. Clone to workspace, analyze diff, post comments.
+      ---
+      name: review-code
+      description: "Review a GitHub PR using gh CLI — analyze for correctness, security, performance"
+      ---
+      # Review Code
+
+      ## Arguments
+      - `$0` (required): PR reference (org/repo#123)
+      - `focus` (optional): security, performance, tests, all
+
+      ## Steps
+      1. **Parse reference** — extract repo and PR number
+      2. **Get PR metadata** — `gh pr view` for title, description, files
+      3. **Get diff** — `gh pr diff`
+      4. **Clone to workspace** (large diffs) — `gh repo clone` + `gh pr checkout`
+      5. **Analyze** — correctness, security, performance, error handling, tests
+      6. **Write review report** — `file_write` to workspace
+      7. **Post review** (optional) — `gh pr review --comment`
 
 service:
   targetPort: 8120
 
 ingress:
-  host: andino-sre.ops.company.com
-  certificateArn: ""  # Set your ACM cert ARN
+  host: andino-sre.ops.conekta.com
+  certificateArn: arn:aws:acm:us-east-1:462204803675:certificate/9b882591-ff50-430e-86d5-67e774bb7ea9
   annotations:
     alb.ingress.kubernetes.io/scheme: internal
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/healthcheck-path: /health
-    alb.ingress.kubernetes.io/group.name: andino
+    alb.ingress.kubernetes.io/group.name: openclaw
 
 secrets:
   region: us-east-1
   keys:
     - secretKey: ANDINO_API_KEY
-      remoteKey: /andino/sre/ANDINO_API_KEY
+      remoteKey: /openclaw/infra-sec/ruben/GATEWAY_TOKEN
     - secretKey: SLACK_APP_TOKEN
-      remoteKey: /andino/sre/SLACK_APP_TOKEN
+      remoteKey: /openclaw/infra-sec/ruben/SLACK_APP_TOKEN
     - secretKey: SLACK_BOT_TOKEN
-      remoteKey: /andino/sre/SLACK_BOT_TOKEN
+      remoteKey: /openclaw/infra-sec/ruben/SLACK_BOT_TOKEN
     - secretKey: DD_API_KEY
-      remoteKey: /andino/sre/DD_API_KEY
+      remoteKey: /openclaw/infra-sec/ruben/DD_API_KEY
     - secretKey: DD_APP_KEY
-      remoteKey: /andino/sre/DD_APP_KEY
+      remoteKey: /openclaw/infra-sec/ruben/DD_APP_KEY
+    - secretKey: DD_SITE
+      remoteKey: /openclaw/infra-sec/ruben/DD_SITE
     - secretKey: JIRA_BASE_URL
-      remoteKey: /andino/sre/JIRA_BASE_URL
+      remoteKey: /openclaw/infra-sec/ruben/JIRA_BASE_URL
     - secretKey: JIRA_USER_EMAIL
-      remoteKey: /andino/sre/JIRA_USER_EMAIL
+      remoteKey: /openclaw/infra-sec/ruben/JIRA_USER_EMAIL
     - secretKey: JIRA_API_TOKEN
-      remoteKey: /andino/sre/JIRA_API_TOKEN
+      remoteKey: /openclaw/infra-sec/ruben/JIRA_API_TOKEN
+    - secretKey: JIRA_CLOUD_ID
+      remoteKey: /openclaw/infra-sec/ruben/JIRA_CLOUD_ID
+    - secretKey: GITHUB_TOKEN
+      remoteKey: /openclaw/infra-sec/ruben/GITHUB_TOKEN
 
 serviceAccount:
   annotations:
-    eks.amazonaws.com/role-arn: ""  # Set your IRSA role ARN
+    eks.amazonaws.com/role-arn: arn:aws:iam::462204803675:role/ckt-openclaw-ruben-role-sa
 
 resources:
   requests:

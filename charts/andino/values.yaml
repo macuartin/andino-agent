@@ -7,7 +7,7 @@ agent:
 
 # -- Container image
 image:
-  repository: ghcr.io/andino-inc/andino-agent
+  repository: ghcr.io/macuartin/andino-agent
   tag: latest
   pullPolicy: Always
 

@@ -1,0 +1,21 @@
+groups:
+  engineers:
+    # - slack_id: UXXXXXXXXXX
+    #   name: Engineer Name
+
+rules:
+  # Shell for code analysis — allowed for all, no approval needed
+  - tool: shell
+    allow: all
+
+  # Jira write operations — allowed for all
+  - tool: jira_*
+    allow: all
+
+  # Confluence write — allowed for all
+  - tool: confluence_*
+    allow: all
+
+  # Everything else — open
+  - tool: "*"
+    allow: all

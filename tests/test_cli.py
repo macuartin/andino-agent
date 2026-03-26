@@ -103,8 +103,8 @@ class TestTyperCommands:
         assert "researcher" in result.output
         assert "prospector" in result.output
         assert "sre" in result.output
+        assert "architect" in result.output
         # Deleted templates should not appear
-        assert "architect" not in result.output
         assert "coder" not in result.output
         assert "reviewer" not in result.output
 

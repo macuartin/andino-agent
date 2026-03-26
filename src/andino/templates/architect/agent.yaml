@@ -1,0 +1,69 @@
+name: architect
+version: "1.0.0"
+description: "Feature Refiner — analyzes Jira tasks, reviews codebases, and produces technical refinements"
+
+model:
+  provider: bedrock
+  model_id: us.anthropic.claude-sonnet-4-6
+  max_tokens: 8192
+
+persona: ./persona.md
+system_prompt: ./system_prompt.md
+context: ./context.md
+access: ./access.yaml
+
+tools:
+  # Jira (read + write)
+  - andino.tools.jira:jira_get_issue
+  - andino.tools.jira:jira_search_issues
+  - andino.tools.jira:jira_add_comment
+  - andino.tools.jira:jira_transition_issue
+  - andino.tools.jira:jira_assign_issue
+  # Confluence (knowledge base)
+  - andino.tools.confluence:confluence_search
+  - andino.tools.confluence:confluence_get_page
+  - andino.tools.confluence:confluence_create_page
+  - andino.tools.confluence:confluence_update_page
+  # Code analysis
+  - strands_tools.shell:shell
+  - strands_tools.file_read:file_read
+  - strands_tools.file_write:file_write
+  - strands_tools.http_request:http_request
+  # Slack file sharing
+  - andino.channels.slack_upload:slack_upload_file
+
+skills:
+  - ./skills/refine-feature
+  - ./skills/analyze-codebase
+  - ./skills/write-spec
+  - ./skills/estimate-effort
+
+channels:
+  slack:
+    enabled: true
+    mode: socket
+    app_token: ${SLACK_APP_TOKEN}
+    bot_token: ${SLACK_BOT_TOKEN}
+    require_mention: true
+
+server:
+  host: "0.0.0.0"
+  port: 8115
+  api_key: ${ANDINO_API_KEY}
+
+conversation:
+  manager: sliding_window
+  window_size: 15
+  should_truncate_results: true
+
+workspace:
+  enabled: true
+  base_dir: .workspaces
+
+session:
+  storage_dir: .sessions
+  max_pool_size: 50
+
+limits:
+  max_concurrent_tasks: 3
+  task_timeout_seconds: 900

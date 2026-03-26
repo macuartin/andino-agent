@@ -49,6 +49,11 @@ class ConversationConfig(BaseModel):
     preserve_recent_messages: int = 10
 
 
+class MemoryConfig(BaseModel):
+    provider: str = ""  # empty = disabled. "lancedb" | future: "qdrant", "chroma"
+    options: dict[str, Any] = {}
+
+
 class SessionConfig(BaseModel):
     storage_dir: str = ".sessions"
     max_pool_size: int = 20
@@ -70,6 +75,7 @@ class AgentConfig(BaseModel):
     limits: LimitsConfig = LimitsConfig()
     conversation: ConversationConfig = ConversationConfig()
     skills: list[str] = []
+    memory: MemoryConfig = MemoryConfig()
     workspace: WorkspaceConfig = WorkspaceConfig()
     session: SessionConfig = SessionConfig()
 

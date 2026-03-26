@@ -62,6 +62,14 @@ def build_agent(config: AgentConfig, session_id: str | None = None) -> Agent:
 
     tools = _build_tools(config)
 
+    # Load memory tool if configured
+    if config.memory.provider:
+        from andino.memory import build_memory_provider, create_memory_tool
+
+        memory_provider = build_memory_provider(config.name, config.memory.provider, config.memory.options)
+        tools.append(create_memory_tool(memory_provider))
+        logger.info("memory_tool_loaded provider=%s", config.memory.provider)
+
     # Build AccessEvaluator from access.yaml (if configured)
     from andino.access import AccessEvaluator
 

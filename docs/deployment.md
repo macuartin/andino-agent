@@ -149,7 +149,7 @@ One Dockerfile for all agents — the agent config is mounted at runtime:
 
 ```dockerfile
 # deploy/Dockerfile
-FROM python:3.12-slim
+FROM python:3.13-slim
 WORKDIR /app
 
 COPY pyproject.toml /sdk/

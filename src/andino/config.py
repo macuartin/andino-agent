@@ -59,6 +59,21 @@ class SessionConfig(BaseModel):
     max_pool_size: int = 20
 
 
+class ObservabilityConfig(BaseModel):
+    """OpenTelemetry configuration.
+
+    Honors standard OTEL env vars (``OTEL_EXPORTER_OTLP_ENDPOINT``,
+    ``OTEL_EXPORTER_OTLP_HEADERS``) when ``otlp`` is enabled. Requires the
+    ``andino-agent[otel]`` extra.
+    """
+
+    enabled: bool = False
+    otlp: bool = True
+    console: bool = False
+    metrics: bool = False
+    service_name: str = ""
+
+
 class AgentConfig(BaseModel):
     name: str
     version: str = "1.0.0"
@@ -78,6 +93,7 @@ class AgentConfig(BaseModel):
     memory: MemoryConfig = MemoryConfig()
     workspace: WorkspaceConfig = WorkspaceConfig()
     session: SessionConfig = SessionConfig()
+    observability: ObservabilityConfig = ObservabilityConfig()
 
     @classmethod
     def from_yaml(cls, path: str) -> AgentConfig:

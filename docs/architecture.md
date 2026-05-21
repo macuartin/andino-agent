@@ -145,6 +145,35 @@ Signal handlers are registered on the event loop for `SIGTERM` and `SIGINT`:
 
 This ensures in-flight tasks complete before shutdown and channels (Slack Socket Mode, etc.) disconnect properly.
 
+## Observability (OpenTelemetry)
+
+Opt-in via `agent.yaml`. Requires the `andino-agent[otel]` extra.
+
+```yaml
+observability:
+  enabled: true
+  otlp: true        # default — export traces to OTLP endpoint
+  console: false    # also print spans to stdout (debug)
+  metrics: false    # set up MeterProvider
+  service_name: ""  # defaults to agent name
+```
+
+Standard OTEL env vars are honored by the underlying SDK:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — collector URL (default `http://localhost:4318`)
+- `OTEL_EXPORTER_OTLP_HEADERS` — auth headers (`api-key=...`)
+- `OTEL_SERVICE_NAME` — overrides agent name
+
+Strands emits GenAI semantic-convention spans (`gen_ai.system`, `gen_ai.request.model`, tool calls, etc.) — readable in Jaeger, Datadog, Honeycomb, or any OTLP-compatible backend.
+
+Quick local test with Jaeger:
+
+```bash
+docker run --rm -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 andino run my-agent
+# open http://localhost:16686
+```
+
 ## Module Dependency Graph
 
 ```

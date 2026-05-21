@@ -59,6 +59,9 @@ class AgentService:
         os.environ.setdefault("PAGER", "")
         os.environ.setdefault("GIT_TERMINAL_PROMPT", "0")
 
+        if self.config.observability.enabled:
+            self._setup_telemetry()
+
         logger.info(
             "starting agent=%s port=%d provider=%s model=%s",
             self.config.name,
@@ -68,6 +71,42 @@ class AgentService:
         )
 
         asyncio.run(self._run_async())
+
+    def _setup_telemetry(self) -> None:
+        """Initialize OpenTelemetry via strands.telemetry.StrandsTelemetry.
+
+        Requires the ``andino-agent[otel]`` extra. Silently logs and returns
+        if the OTEL deps are not installed.
+        """
+        obs = self.config.observability
+        try:
+            from strands.telemetry import StrandsTelemetry
+        except ImportError:
+            logger.warning(
+                "observability_enabled but OTEL deps not installed; "
+                "install with `pip install andino-agent[otel]`"
+            )
+            return
+
+        os.environ.setdefault("OTEL_SERVICE_NAME", obs.service_name or self.config.name)
+
+        telemetry = StrandsTelemetry()
+        if obs.console:
+            telemetry.setup_console_exporter()
+        if obs.otlp:
+            telemetry.setup_otlp_exporter()
+        if obs.metrics:
+            telemetry.setup_meter(
+                enable_console_exporter=obs.console,
+                enable_otlp_exporter=obs.otlp,
+            )
+        logger.info(
+            "telemetry_initialized service=%s otlp=%s console=%s metrics=%s",
+            os.environ["OTEL_SERVICE_NAME"],
+            obs.otlp,
+            obs.console,
+            obs.metrics,
+        )
 
     async def _run_async(self) -> None:
         executor = TaskExecutor(self.config)

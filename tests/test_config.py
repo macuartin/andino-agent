@@ -4,7 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from andino.config import AgentConfig, LimitsConfig, ModelConfig, ServerConfig, SessionConfig, WorkspaceConfig
+from andino.config import (
+    AgentConfig,
+    LimitsConfig,
+    ModelConfig,
+    ObservabilityConfig,
+    ServerConfig,
+    SessionConfig,
+    WorkspaceConfig,
+)
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -46,6 +54,23 @@ class TestSessionConfig:
         cfg = SessionConfig()
         assert cfg.storage_dir == ".sessions"
         assert cfg.max_pool_size == 20
+
+
+class TestObservabilityConfig:
+    def test_defaults(self):
+        cfg = ObservabilityConfig()
+        assert cfg.enabled is False
+        assert cfg.otlp is True
+        assert cfg.console is False
+        assert cfg.metrics is False
+        assert cfg.service_name == ""
+
+    def test_custom_values(self):
+        cfg = ObservabilityConfig(enabled=True, console=True, metrics=True, service_name="my-agent")
+        assert cfg.enabled is True
+        assert cfg.console is True
+        assert cfg.metrics is True
+        assert cfg.service_name == "my-agent"
 
 
 class TestWorkspaceConfig:

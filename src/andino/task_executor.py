@@ -5,7 +5,7 @@ import logging
 import re
 from collections import OrderedDict
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -46,7 +46,7 @@ class TaskStatus(BaseModel):
 class _TaskItem:
     """Internal queue item."""
 
-    __slots__ = ("task_id", "prompt", "session_id")
+    __slots__ = ("prompt", "session_id", "task_id")
 
     def __init__(self, task_id: str, prompt: str, session_id: str | None) -> None:
         self.task_id = task_id
@@ -156,7 +156,7 @@ class TaskExecutor:
         """Enqueue a task. Raises ValueError if queue is full."""
         self.ensure_started()
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         status = TaskStatus(
             task_id=task_id,
             status=TaskState.queued,
@@ -198,7 +198,7 @@ class TaskExecutor:
                 continue
 
             task_status.status = TaskState.running
-            task_status.started_at = datetime.now(timezone.utc).isoformat()
+            task_status.started_at = datetime.now(UTC).isoformat()
 
             # Populate workspace_dir if workspace is enabled for this session
             if self._config.workspace.enabled and item.session_id:
@@ -259,7 +259,7 @@ class TaskExecutor:
                     task_status.result = _extract_text(result)
                     break
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("task_timeout task_id=%s", item.task_id)
                 task_status.status = TaskState.timeout
                 task_status.error = f"Timed out after {self._limits.task_timeout_seconds}s"
@@ -269,7 +269,7 @@ class TaskExecutor:
                 task_status.error = str(exc)[:2000]
             finally:
                 lock.release()
-                task_status.completed_at = datetime.now(timezone.utc).isoformat()
+                task_status.completed_at = datetime.now(UTC).isoformat()
                 event = self._completion_events.get(item.task_id)
                 if event is not None:
                     event.set()

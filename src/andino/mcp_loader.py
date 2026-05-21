@@ -19,7 +19,7 @@ def _build_transport(config: dict[str, Any]):
         args = config.get("args", [])
         env = config.get("env")
         full_env = {**os.environ, **env} if env else None
-        devnull = open(os.devnull, "w")  # noqa: SIM115
+        devnull = open(os.devnull, "w")
         return lambda: stdio_client(
             StdioServerParameters(command=command, args=args, env=full_env),
             errlog=devnull,

@@ -16,11 +16,11 @@ TOOL_SPEC: dict[str, Any] = {
         "Use this to remember important facts, user preferences, project context, "
         "past decisions, and anything the agent should recall in future sessions.\n\n"
         "Actions:\n"
-        "- store: Save a new memory with optional tags\n"
+        "- store: Save a new memory (optional title, tags)\n"
         "- retrieve: Semantic search — find memories related to a query\n"
         "- list: Show recent memories (newest first)\n"
-        "- get: Fetch a specific memory by ID\n"
-        "- delete: Remove a memory by ID"
+        "- get: Fetch a specific memory by document_id\n"
+        "- delete: Remove a memory by document_id"
     ),
     "inputSchema": {
         "type": "object",
@@ -34,13 +34,17 @@ TOOL_SPEC: dict[str, Any] = {
                 "type": "string",
                 "description": "Content to store (required for 'store' action).",
             },
+            "title": {
+                "type": "string",
+                "description": "Optional short title for the memory (for 'store' action).",
+            },
             "query": {
                 "type": "string",
                 "description": "Search query (required for 'retrieve' action).",
             },
-            "memory_id": {
+            "document_id": {
                 "type": "string",
-                "description": "Memory ID (required for 'get' and 'delete' actions).",
+                "description": "Memory document identifier (required for 'get' and 'delete' actions).",
             },
             "tags": {
                 "type": "array",
@@ -50,6 +54,10 @@ TOOL_SPEC: dict[str, Any] = {
             "max_results": {
                 "type": "integer",
                 "description": "Maximum results to return (default: 10 for retrieve, 50 for list).",
+            },
+            "min_score": {
+                "type": "number",
+                "description": "Minimum relevance score 0.0-1.0 for 'retrieve' (default: 0.0, no filter).",
             },
         },
         "required": ["action"],
@@ -70,16 +78,22 @@ def create_memory_tool(provider: MemoryProvider) -> Any:
             content = kwargs.get("content", "")
             if not content:
                 return _err("'content' is required for store action.")
-            tags = kwargs.get("tags", [])
-            entry = await provider.store(content, {"tags": tags})
-            return _ok(f"Memory stored.\nID: {entry.id}\nContent: {entry.content}")
+            metadata: dict[str, Any] = {"tags": kwargs.get("tags", [])}
+            title = kwargs.get("title", "")
+            if title:
+                metadata["title"] = title
+            entry = await provider.store(content, metadata)
+            return _ok(f"Memory stored.\ndocument_id: {entry.id}\nContent: {entry.content}")
 
         if action == "retrieve":
             query = kwargs.get("query", "")
             if not query:
                 return _err("'query' is required for retrieve action.")
             max_results = kwargs.get("max_results", 10)
+            min_score = kwargs.get("min_score", 0.0)
             entries = await provider.retrieve(query, max_results)
+            if min_score:
+                entries = [e for e in entries if (e.score or 0.0) >= min_score]
             if not entries:
                 return _ok("No memories found matching the query.")
             lines = [f"Found {len(entries)} memory(s):"]
@@ -87,7 +101,9 @@ def create_memory_tool(provider: MemoryProvider) -> Any:
                 score = f" (relevance: {e.score:.2f})" if e.score is not None else ""
                 tags = e.metadata.get("tags", [])
                 tag_str = f" [{', '.join(tags)}]" if tags else ""
-                lines.append(f"\n**{e.id}**{score}{tag_str}\n{e.content}")
+                title = e.metadata.get("title", "")
+                title_str = f" — {title}" if title else ""
+                lines.append(f"\n**{e.id}**{score}{tag_str}{title_str}\n{e.content}")
             return _ok("\n".join(lines))
 
         if action == "list":
@@ -102,27 +118,28 @@ def create_memory_tool(provider: MemoryProvider) -> Any:
             return _ok("\n".join(lines))
 
         if action == "get":
-            memory_id = kwargs.get("memory_id", "")
-            if not memory_id:
-                return _err("'memory_id' is required for get action.")
-            entry = await provider.get(memory_id)
+            document_id = kwargs.get("document_id", "")
+            if not document_id:
+                return _err("'document_id' is required for get action.")
+            entry = await provider.get(document_id)
             if entry is None:
-                return _ok(f"Memory '{memory_id}' not found.")
+                return _ok(f"Memory '{document_id}' not found.")
             return _ok(
-                f"ID: {entry.id}\n"
+                f"document_id: {entry.id}\n"
                 f"Created: {entry.created_at}\n"
+                f"Title: {entry.metadata.get('title', '')}\n"
                 f"Tags: {entry.metadata.get('tags', [])}\n"
                 f"Content:\n{entry.content}"
             )
 
         if action == "delete":
-            memory_id = kwargs.get("memory_id", "")
-            if not memory_id:
-                return _err("'memory_id' is required for delete action.")
-            ok = await provider.delete(memory_id)
+            document_id = kwargs.get("document_id", "")
+            if not document_id:
+                return _err("'document_id' is required for delete action.")
+            ok = await provider.delete(document_id)
             if ok:
-                return _ok(f"Memory '{memory_id}' deleted.")
-            return _ok(f"Memory '{memory_id}' not found.")
+                return _ok(f"Memory '{document_id}' deleted.")
+            return _ok(f"Memory '{document_id}' not found.")
 
         return _err(f"Unknown action: {action}. Use: store, retrieve, list, get, delete.")
 

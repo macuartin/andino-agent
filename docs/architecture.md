@@ -200,6 +200,23 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 andino run my-agent
 # open http://localhost:16686
 ```
 
+## Memory Tool Contract
+
+When `memory.provider` is set in `agent.yaml`, andino exposes a `memory` tool to the LLM. The tool spec mirrors the keys of `strands_tools.memory` (the Bedrock Knowledge Bases reference implementation) so the same prompts and tool-use patterns work whether the backend is andino's local LanceDB+Titan provider or any other compatible store:
+
+| Key | Used by | Notes |
+|---|---|---|
+| `action` | all | `store \| retrieve \| list \| get \| delete` |
+| `content` | store | required |
+| `title` | store | optional short title, stored in metadata |
+| `query` | retrieve | required |
+| `document_id` | get / delete | required |
+| `tags` | store | andino extension, stored in metadata |
+| `max_results` | retrieve, list | default 10 / 50 |
+| `min_score` | retrieve | filter entries below relevance threshold |
+
+This means an agent's system prompt that says "use the `memory` tool to store user preferences" works against either backend without prompt changes; only the `memory.provider` config differs.
+
 ## Module Dependency Graph
 
 ```

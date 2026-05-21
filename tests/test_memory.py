@@ -101,21 +101,21 @@ class TestMemoryTool:
 
     async def test_get(self, tool, provider):
         await provider.store("Test content")
-        result = await tool(tool_use_id="t1", action="get", memory_id="mem_test_001")
+        result = await tool(tool_use_id="t1", action="get", document_id="mem_test_001")
         assert result["status"] == "success"
         assert "Test content" in result["content"][0]["text"]
 
     async def test_get_not_found(self, tool):
-        result = await tool(tool_use_id="t1", action="get", memory_id="nonexistent")
+        result = await tool(tool_use_id="t1", action="get", document_id="nonexistent")
         assert "not found" in result["content"][0]["text"]
 
     async def test_delete(self, tool, provider):
         await provider.store("To be deleted")
-        result = await tool(tool_use_id="t1", action="delete", memory_id="mem_test_001")
+        result = await tool(tool_use_id="t1", action="delete", document_id="mem_test_001")
         assert "deleted" in result["content"][0]["text"]
 
     async def test_delete_not_found(self, tool):
-        result = await tool(tool_use_id="t1", action="delete", memory_id="nonexistent")
+        result = await tool(tool_use_id="t1", action="delete", document_id="nonexistent")
         assert "not found" in result["content"][0]["text"]
 
     async def test_unknown_action(self, tool):
@@ -125,6 +125,36 @@ class TestMemoryTool:
     def test_tool_has_spec(self, tool):
         assert hasattr(tool, "TOOL_SPEC")
         assert tool.TOOL_SPEC["name"] == "memory"
+
+    def test_spec_aligns_with_sdk_keys(self, tool):
+        props = tool.TOOL_SPEC["inputSchema"]["properties"]
+        # Aligned with strands_tools.memory: same identifier and key fields.
+        assert "document_id" in props
+        assert "title" in props
+        assert "min_score" in props
+        # Andino extension preserved.
+        assert "tags" in props
+
+    async def test_store_with_title(self, tool, provider):
+        result = await tool(
+            tool_use_id="t1",
+            action="store",
+            content="X",
+            title="My title",
+            tags=["a"],
+        )
+        assert result["status"] == "success"
+        stored = await provider.get("mem_test_001")
+        assert stored.metadata["title"] == "My title"
+        assert stored.metadata["tags"] == ["a"]
+
+    async def test_retrieve_min_score_filters(self, tool, provider):
+        # MockProvider gives all retrieved entries score=0.95
+        await provider.store("Python is great")
+        high = await tool(tool_use_id="t1", action="retrieve", query="Python", min_score=0.5)
+        assert "Python is great" in high["content"][0]["text"]
+        low = await tool(tool_use_id="t1", action="retrieve", query="Python", min_score=0.99)
+        assert "No memories" in low["content"][0]["text"]
 
 
 class TestBuildMemoryProvider:

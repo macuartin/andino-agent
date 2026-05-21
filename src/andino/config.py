@@ -72,6 +72,7 @@ class ObservabilityConfig(BaseModel):
     console: bool = False
     metrics: bool = False
     service_name: str = ""
+    lifecycle_logging: bool = False
 
 
 class AgentConfig(BaseModel):

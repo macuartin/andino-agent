@@ -152,11 +152,24 @@ Opt-in via `agent.yaml`. Requires the `andino-agent[otel]` extra.
 ```yaml
 observability:
   enabled: true
-  otlp: true        # default — export traces to OTLP endpoint
-  console: false    # also print spans to stdout (debug)
-  metrics: false    # set up MeterProvider
-  service_name: ""  # defaults to agent name
+  otlp: true              # default — export traces to OTLP endpoint
+  console: false          # also print spans to stdout (debug)
+  metrics: false          # set up MeterProvider
+  service_name: ""        # defaults to agent name
+  lifecycle_logging: true # log invocation start/end + duration
 ```
+
+### Lifecycle hooks
+
+When `lifecycle_logging: true`, andino attaches a `LifecycleHook` that subscribes to Strands' `BeforeInvocationEvent`, `AfterInvocationEvent`, and `MessageAddedEvent` and emits structured log lines:
+
+```
+invocation_started input_messages=3
+message_added role=assistant         # DEBUG level
+invocation_completed duration_ms=2417 stop_reason=end_turn
+```
+
+Channels can subscribe to `MessageAddedEvent` programmatically by passing an `on_message` callback to `LifecycleHook(on_message=...)` — used to mirror partial assistant messages to Slack/etc. as they are produced.
 
 Standard OTEL env vars are honored by the underlying SDK:
 

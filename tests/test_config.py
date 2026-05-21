@@ -64,13 +64,21 @@ class TestObservabilityConfig:
         assert cfg.console is False
         assert cfg.metrics is False
         assert cfg.service_name == ""
+        assert cfg.lifecycle_logging is False
 
     def test_custom_values(self):
-        cfg = ObservabilityConfig(enabled=True, console=True, metrics=True, service_name="my-agent")
+        cfg = ObservabilityConfig(
+            enabled=True,
+            console=True,
+            metrics=True,
+            service_name="my-agent",
+            lifecycle_logging=True,
+        )
         assert cfg.enabled is True
         assert cfg.console is True
         assert cfg.metrics is True
         assert cfg.service_name == "my-agent"
+        assert cfg.lifecycle_logging is True
 
 
 class TestWorkspaceConfig:

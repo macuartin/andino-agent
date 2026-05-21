@@ -83,6 +83,12 @@ def build_agent(config: AgentConfig, session_id: str | None = None) -> Agent:
 
         hooks.append(ToolApprovalHook(evaluator=access_evaluator))
 
+    if config.observability.lifecycle_logging:
+        from andino.observability import LifecycleHook
+
+        hooks.append(LifecycleHook(log=True))
+        logger.info("lifecycle_hook_enabled")
+
     # Build system_prompt — persona + system_prompt + context + workspace
     parts: list[str] = []
     if config.persona:

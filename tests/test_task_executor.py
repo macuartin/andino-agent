@@ -359,6 +359,35 @@ class TestTaskExecutor:
         assert status.result == "Done!"
 
     @patch("andino.task_executor.build_agent")
+    async def test_worker_captures_structured_output(self, mock_build, sample_config):
+        from pydantic import BaseModel
+
+        class _Out(BaseModel):
+            answer: str
+            score: float
+
+        instance = _Out(answer="hello", score=0.9)
+        mock_result = MagicMock()
+        mock_result.message = {"content": [{"text": "hello"}]}
+        mock_result.stop_reason = "end_turn"
+        mock_result.structured_output = instance
+
+        async def fake_stream(_input):
+            yield {"result": mock_result}
+
+        mock_agent = MagicMock()
+        mock_agent.stream_async = fake_stream
+        mock_build.return_value = mock_agent
+
+        executor = TaskExecutor(sample_config)
+        await executor.submit("t1", "prompt")
+        await asyncio.sleep(0.2)
+
+        status = executor.get_status("t1")
+        assert status.status == TaskState.completed
+        assert status.structured_output == {"answer": "hello", "score": 0.9}
+
+    @patch("andino.task_executor.build_agent")
     async def test_worker_handles_error(self, mock_build, sample_config):
         mock_agent = MagicMock()
 

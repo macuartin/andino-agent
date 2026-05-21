@@ -35,6 +35,7 @@ class TaskStatus(BaseModel):
     prompt: str = ""
     session_id: str | None = None
     result: str | None = None
+    structured_output: dict[str, Any] | None = None
     error: str | None = None
     interrupts: list[dict[str, Any]] | None = None
     workspace_dir: str | None = None
@@ -283,6 +284,12 @@ class TaskExecutor:
                     # Normal completion
                     task_status.status = TaskState.completed
                     task_status.result = _extract_text(result)
+                    structured = getattr(result, "structured_output", None)
+                    if structured is not None:
+                        try:
+                            task_status.structured_output = structured.model_dump()
+                        except Exception:
+                            logger.exception("structured_output_dump_failed task_id=%s", item.task_id)
                     break
 
             except TimeoutError:

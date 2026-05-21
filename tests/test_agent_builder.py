@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import sys
+import types
 from unittest.mock import MagicMock, patch
 
+import pytest
+from pydantic import BaseModel
 from strands.agent.conversation_manager import (
     NullConversationManager,
     SlidingWindowConversationManager,
     SummarizingConversationManager,
 )
 
-from andino.agent_builder import _build_conversation_manager, build_agent
-from andino.config import ConversationConfig
+from andino.agent_builder import _build_conversation_manager, _load_output_schema, build_agent
+from andino.config import AgentConfig, ConversationConfig
 
 
 class TestBuildConversationManager:
@@ -139,3 +143,71 @@ class TestSkills:
         call_kwargs = mock_agent_cls.call_args[1]
         assert call_kwargs.get("plugins") is not None
         assert len(call_kwargs["plugins"]) == 1
+
+
+class _SampleSchema(BaseModel):
+    name: str
+    score: float
+
+
+class _NotPydantic:
+    pass
+
+
+@pytest.fixture
+def schema_module():
+    """Install a temporary module exposing _SampleSchema for output_schema tests."""
+    mod = types.ModuleType("andino_test_schemas")
+    mod.SampleSchema = _SampleSchema
+    mod.NotPydantic = _NotPydantic
+    sys.modules["andino_test_schemas"] = mod
+    yield mod
+    sys.modules.pop("andino_test_schemas", None)
+
+
+class TestLoadOutputSchema:
+    def test_colon_form(self, schema_module):
+        cls = _load_output_schema("andino_test_schemas:SampleSchema")
+        assert cls is _SampleSchema
+
+    def test_dot_form(self, schema_module):
+        cls = _load_output_schema("andino_test_schemas.SampleSchema")
+        assert cls is _SampleSchema
+
+    def test_missing_attribute(self, schema_module):
+        with pytest.raises(ValueError, match="Attribute 'Ghost' not found"):
+            _load_output_schema("andino_test_schemas:Ghost")
+
+    def test_invalid_ref_format(self):
+        with pytest.raises(ValueError, match="Invalid output_schema"):
+            _load_output_schema("no_separator")
+
+    def test_not_pydantic_subclass(self, schema_module):
+        with pytest.raises(TypeError, match="not a Pydantic BaseModel"):
+            _load_output_schema("andino_test_schemas:NotPydantic")
+
+
+class TestOutputSchemaWiring:
+    @patch("andino.agent_builder.Agent")
+    @patch("andino.agent_builder.build_model")
+    def test_no_schema_no_kwarg(self, mock_build_model, mock_agent_cls, sample_config):
+        mock_build_model.return_value = MagicMock()
+        mock_agent_cls.return_value = MagicMock()
+
+        sample_config.output_schema = ""
+
+        build_agent(sample_config)
+        call_kwargs = mock_agent_cls.call_args[1]
+        assert "structured_output_model" not in call_kwargs
+
+    @patch("andino.agent_builder.Agent")
+    @patch("andino.agent_builder.build_model")
+    def test_schema_passed_to_agent(self, mock_build_model, mock_agent_cls, sample_config, schema_module):
+        mock_build_model.return_value = MagicMock()
+        mock_agent_cls.return_value = MagicMock()
+
+        sample_config.output_schema = "andino_test_schemas:SampleSchema"
+
+        build_agent(sample_config)
+        call_kwargs = mock_agent_cls.call_args[1]
+        assert call_kwargs["structured_output_model"] is _SampleSchema

@@ -225,6 +225,27 @@ When enabled and a `session_id` is provided, Andino:
 | `storage_dir` | string | `".sessions"` | Directory where `FileSessionManager` persists conversation state |
 | `max_pool_size` | int | `20` | Max agent instances cached in the AgentPool (LRU eviction) |
 
+## Structured Output
+
+To force the agent to return a typed Pydantic model on every turn, set `output_schema:` to a `module:Attr` (or `module.Attr`) reference. The module must be importable on the Python path.
+
+```yaml
+# prospector/agent.yaml
+output_schema: my_app.schemas:Lead
+```
+
+```python
+# my_app/schemas.py
+from pydantic import BaseModel
+
+class Lead(BaseModel):
+    name: str
+    company: str
+    score: float
+```
+
+The schema is passed to `Agent(structured_output_model=Lead)` so the SDK applies it as the default for every invocation. On completion, `TaskStatus.structured_output` contains `Lead.model_dump()` and the original text answer remains in `TaskStatus.result` as a fallback. Validation failures trigger the SDK's automatic retry against the model.
+
 ## Agent References (multi-agent composition)
 
 Inside `tools:`, the prefix `andino:<name>` makes the calling agent treat another local Andino agent as a tool. The referenced agent is loaded from `$ANDINO_HOME/agents/<name>/agent.yaml`.

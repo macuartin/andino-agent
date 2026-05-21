@@ -95,6 +95,7 @@ class AgentConfig(BaseModel):
     workspace: WorkspaceConfig = WorkspaceConfig()
     session: SessionConfig = SessionConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
+    output_schema: str = ""
 
     @classmethod
     def from_yaml(cls, path: str) -> AgentConfig:

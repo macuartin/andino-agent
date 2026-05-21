@@ -47,6 +47,29 @@ def _build_tools(config: AgentConfig) -> list:
     return tools
 
 
+def _load_output_schema(ref: str):
+    """Load a Pydantic ``BaseModel`` class from ``module:attr`` (or ``module.attr``)."""
+    import importlib
+
+    from pydantic import BaseModel
+
+    if ":" in ref:
+        module_name, attr = ref.split(":", 1)
+    elif "." in ref:
+        module_name, attr = ref.rsplit(".", 1)
+    else:
+        raise ValueError(f"Invalid output_schema reference '{ref}'. Expected 'module:attr' or 'module.attr'.")
+
+    module = importlib.import_module(module_name)
+    if not hasattr(module, attr):
+        raise ValueError(f"Attribute '{attr}' not found in module '{module_name}'")
+
+    cls = getattr(module, attr)
+    if not (isinstance(cls, type) and issubclass(cls, BaseModel)):
+        raise TypeError(f"output_schema '{ref}' is not a Pydantic BaseModel subclass")
+    return cls
+
+
 def build_agent(config: AgentConfig, session_id: str | None = None) -> Agent:
     """Build a Strands Agent from an AgentConfig.
 
@@ -129,6 +152,10 @@ def build_agent(config: AgentConfig, session_id: str | None = None) -> Agent:
         hooks=hooks or None,
         plugins=plugins or None,
     )
+
+    if config.output_schema:
+        kwargs["structured_output_model"] = _load_output_schema(config.output_schema)
+        logger.info("output_schema_loaded ref=%s", config.output_schema)
 
     if session_id is not None:
         try:

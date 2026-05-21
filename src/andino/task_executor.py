@@ -122,8 +122,32 @@ def _extract_text(result: object) -> str:
     return _strip_thinking(str(result))
 
 
+async def _consume_stream(agent: Any, input_data: Any, on_progress: Callable | None) -> Any:
+    """Consume an ``agent.stream_async`` iterator and return the final ``AgentResult``.
+
+    When ``on_progress`` is provided, it is awaited with each text delta as
+    the stream produces tokens. Interrupt handling and the final result are
+    delivered identically to ``invoke_async`` (which itself wraps
+    ``stream_async`` internally).
+    """
+    result = None
+    async for event in agent.stream_async(input_data):
+        if on_progress is not None and isinstance(event, dict) and "data" in event:
+            delta = event["data"]
+            if delta:
+                try:
+                    await on_progress(delta)
+                except Exception:
+                    logger.exception("on_progress_callback_failed")
+        if isinstance(event, dict) and "result" in event:
+            result = event["result"]
+    if result is None:
+        raise RuntimeError("agent stream ended without an AgentResult event")
+    return result
+
+
 class TaskExecutor:
-    """Queue-based task executor using invoke_async."""
+    """Queue-based task executor using ``stream_async`` under the hood."""
 
     def __init__(self, config: AgentConfig) -> None:
         self._config = config
@@ -137,6 +161,7 @@ class TaskExecutor:
         self._completion_events: dict[str, asyncio.Event] = {}
         self._pending_responses: dict[str, asyncio.Future[list[dict]]] = {}
         self._interrupt_callbacks: dict[str, Callable] = {}
+        self._progress_callbacks: dict[str, Callable] = {}
 
     def ensure_started(self) -> None:
         """Start worker coroutines. Safe to call multiple times."""
@@ -206,11 +231,12 @@ class TaskExecutor:
                 task_status.workspace_dir = str(workspace)
 
             agent, lock = await self._pool.acquire(item.session_id)
+            on_progress = self._progress_callbacks.get(item.task_id)
             try:
                 input_data: Any = item.prompt
                 while True:
                     result = await asyncio.wait_for(
-                        agent.invoke_async(input_data),
+                        _consume_stream(agent, input_data, on_progress),
                         timeout=self._limits.task_timeout_seconds,
                     )
 
@@ -269,6 +295,7 @@ class TaskExecutor:
                 task_status.error = str(exc)[:2000]
             finally:
                 lock.release()
+                self._progress_callbacks.pop(item.task_id, None)
                 task_status.completed_at = datetime.now(UTC).isoformat()
                 event = self._completion_events.get(item.task_id)
                 if event is not None:
@@ -289,6 +316,15 @@ class TaskExecutor:
     def on_interrupt(self, task_id: str, callback: Callable) -> None:
         """Register an async callback to invoke when a task is interrupted."""
         self._interrupt_callbacks[task_id] = callback
+
+    def on_progress(self, task_id: str, callback: Callable) -> None:
+        """Register an async callback invoked with each streaming text delta.
+
+        The callback is awaited with the raw ``data`` string from each
+        streaming event produced by ``agent.stream_async`` and is cleared
+        automatically when the task completes.
+        """
+        self._progress_callbacks[task_id] = callback
 
     def get_status(self, task_id: str) -> TaskStatus | None:
         return self._tasks.get(task_id)

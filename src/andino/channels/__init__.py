@@ -44,11 +44,14 @@ class BaseChannel(ABC):
         prompt: str,
         session_id: str | None = None,
         on_interrupt: Callable | None = None,
+        on_progress: Callable | None = None,
     ) -> TaskStatus:
         """Submit a task and wait for completion."""
         task_id = str(uuid.uuid4())
         if on_interrupt is not None:
             self._executor.on_interrupt(task_id, on_interrupt)
+        if on_progress is not None:
+            self._executor.on_progress(task_id, on_progress)
         return await self._executor.submit_and_wait(task_id, prompt, session_id)
 
 

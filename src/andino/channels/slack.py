@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
 from pydantic import BaseModel
@@ -120,6 +121,8 @@ class SlackConfig(BaseModel):
     require_mention: bool = True
     allowed_channels: list[str] = []
     max_message_length: int = 3900
+    streaming: bool = True
+    stream_update_interval: float = 1.5
 
 
 class SlackChannel(BaseChannel):
@@ -285,8 +288,28 @@ class SlackChannel(BaseChannel):
 
             register_upload_context(workspace_dir, self._app.client, channel_id, thread_ts)
 
+        # Set up streaming placeholder + throttled progress callback (optional)
+        stream_state: dict[str, Any] = {}
+        on_progress = None
+        if self._config.streaming:
+            try:
+                placeholder = await say(text=":thinking_face: …", thread_ts=thread_ts)
+                stream_state = {
+                    "channel": placeholder.get("channel", channel_id),
+                    "ts": placeholder.get("ts"),
+                    "buffer": "",
+                    "last_update": 0.0,
+                }
+                on_progress = self._build_progress_callback(stream_state)
+            except Exception:
+                logger.exception("slack_stream_placeholder_failed — falling back to final-only")
+                stream_state = {}
+                on_progress = None
+
         try:
-            status = await self.submit_and_wait(prompt, session_id, on_interrupt=on_interrupt)
+            status = await self.submit_and_wait(
+                prompt, session_id, on_interrupt=on_interrupt, on_progress=on_progress
+            )
             response_text = status.result or status.error or "No response"
         except Exception:
             logger.exception("slack_task_failed session_id=%s", session_id)
@@ -298,10 +321,56 @@ class SlackChannel(BaseChannel):
 
                 clear_upload_context(workspace_dir)
 
-        response_text = self._format(response_text)
+        formatted = self._format(response_text)
+        chunks = self._chunk_text(formatted, self._config.max_message_length)
 
-        for chunk in self._chunk_text(response_text, self._config.max_message_length):
-            await say(text=chunk, thread_ts=thread_ts)
+        if stream_state.get("ts"):
+            # Replace placeholder with the first (formatted) chunk
+            try:
+                await self._app.client.chat_update(
+                    channel=stream_state["channel"],
+                    ts=stream_state["ts"],
+                    text=chunks[0],
+                )
+            except Exception:
+                logger.exception("slack_stream_final_update_failed")
+                await say(text=chunks[0], thread_ts=thread_ts)
+            for chunk in chunks[1:]:
+                await say(text=chunk, thread_ts=thread_ts)
+        else:
+            for chunk in chunks:
+                await say(text=chunk, thread_ts=thread_ts)
+
+    def _build_progress_callback(self, state: dict[str, Any]) -> Any:
+        """Return an async callback that does throttled ``chat_update`` calls.
+
+        ``state`` must contain ``channel``, ``ts``, ``buffer``, ``last_update``.
+        The callback appends each delta to ``buffer`` and updates the
+        placeholder Slack message at most once every
+        ``stream_update_interval`` seconds.
+        """
+        max_len = self._config.max_message_length
+        interval = self._config.stream_update_interval
+
+        async def _on_progress(delta: str) -> None:
+            state["buffer"] += delta
+            now = time.monotonic()
+            if now - state["last_update"] < interval:
+                return
+            text = state["buffer"]
+            if len(text) > max_len:
+                text = text[: max_len - 1] + "…"
+            try:
+                await self._app.client.chat_update(
+                    channel=state["channel"],
+                    ts=state["ts"],
+                    text=text,
+                )
+                state["last_update"] = now
+            except Exception:
+                logger.exception("slack_stream_chat_update_failed")
+
+        return _on_progress
 
     def _derive_session_id(self, event: dict) -> str:
         channel_id = event.get("channel", "")

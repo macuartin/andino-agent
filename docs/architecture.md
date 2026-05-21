@@ -112,12 +112,25 @@ The SDK uses **native async** throughout. No thread pools.
 
 ### Why not ThreadPoolExecutor?
 
-Strands `Agent.__call__()` (sync) internally creates a thread + event loop via `run_async()`. Using `invoke_async()` directly avoids this overhead:
+Strands `Agent.__call__()` (sync) internally creates a thread + event loop via `run_async()`. Using `stream_async()` directly avoids this overhead:
 
 | Approach | Threads | Event loops | Complexity |
 |---|---|---|---|
 | `run_in_executor(pool, agent, prompt)` | N+1 per task | 2 per task | High |
-| `await agent.invoke_async(prompt)` | 0 | 1 (shared) | Low |
+| `agent.stream_async(prompt)` | 0 | 1 (shared) | Low |
+
+The worker iterates `stream_async` via `_consume_stream`, forwarding each `data` delta to an optional ``on_progress`` callback before returning the final `AgentResult`. ``invoke_async`` internally does the same thing, so semantics — including interrupt handling — are identical whether or not a callback is registered.
+
+### Progressive responses in channels
+
+Channels can register an ``on_progress`` callback when calling
+``submit_and_wait``. The callback is awaited with each text delta as the
+model produces tokens. The Slack channel uses this to post a placeholder
+message immediately and update it via ``chat_update`` on a throttle
+(``stream_update_interval``, default 1.5 s), so the user sees the
+response build up rather than wait for the whole turn. Set
+``streaming: false`` in the Slack config to fall back to the final-only
+behavior.
 
 ## Session Management
 

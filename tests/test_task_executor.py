@@ -11,9 +11,119 @@ from andino.task_executor import (
     TaskExecutor,
     TaskState,
     TaskStatus,
+    _consume_stream,
     _extract_text,
     _strip_thinking,
 )
+
+
+class TestConsumeStream:
+    async def test_returns_final_result(self):
+        final_result = MagicMock()
+        agent = MagicMock()
+
+        async def fake_stream(_input):
+            yield {"data": "hi"}
+            yield {"result": final_result}
+
+        agent.stream_async = fake_stream
+        result = await _consume_stream(agent, "prompt", on_progress=None)
+        assert result is final_result
+
+    async def test_invokes_on_progress_with_deltas(self):
+        agent = MagicMock()
+
+        async def fake_stream(_input):
+            yield {"data": "Hello"}
+            yield {"data": " world"}
+            yield {"result": MagicMock()}
+
+        agent.stream_async = fake_stream
+
+        captured: list[str] = []
+
+        async def on_progress(delta: str) -> None:
+            captured.append(delta)
+
+        await _consume_stream(agent, "prompt", on_progress=on_progress)
+        assert captured == ["Hello", " world"]
+
+    async def test_raises_without_result_event(self):
+        agent = MagicMock()
+
+        async def fake_stream(_input):
+            yield {"data": "incomplete"}
+
+        agent.stream_async = fake_stream
+        with pytest.raises(RuntimeError, match="without an AgentResult"):
+            await _consume_stream(agent, "prompt", on_progress=None)
+
+    async def test_progress_callback_exception_does_not_abort(self):
+        final_result = MagicMock()
+        agent = MagicMock()
+
+        async def fake_stream(_input):
+            yield {"data": "a"}
+            yield {"data": "b"}
+            yield {"result": final_result}
+
+        agent.stream_async = fake_stream
+
+        async def boom(_delta):
+            raise RuntimeError("user callback exploded")
+
+        result = await _consume_stream(agent, "prompt", on_progress=boom)
+        assert result is final_result
+
+    async def test_skips_empty_data(self):
+        agent = MagicMock()
+
+        async def fake_stream(_input):
+            yield {"data": ""}
+            yield {"data": "real"}
+            yield {"result": MagicMock()}
+
+        agent.stream_async = fake_stream
+        captured: list[str] = []
+
+        async def on_progress(delta: str) -> None:
+            captured.append(delta)
+
+        await _consume_stream(agent, "prompt", on_progress=on_progress)
+        assert captured == ["real"]
+
+
+class TestProgressCallback:
+    @patch("andino.task_executor.build_agent")
+    async def test_on_progress_invoked_during_task(self, mock_build, sample_config):
+        final_result = MagicMock()
+        final_result.message = {"content": [{"text": "Hello world"}]}
+        final_result.stop_reason = "end_turn"
+
+        async def fake_stream(_input):
+            yield {"data": "Hello"}
+            yield {"data": " world"}
+            yield {"result": final_result}
+
+        mock_agent = MagicMock()
+        mock_agent.stream_async = fake_stream
+        mock_build.return_value = mock_agent
+
+        executor = TaskExecutor(sample_config)
+
+        captured: list[str] = []
+
+        async def on_progress(delta: str) -> None:
+            captured.append(delta)
+
+        executor.on_progress("t1", on_progress)
+        await executor.submit("t1", "do thing")
+        await asyncio.sleep(0.2)
+
+        assert captured == ["Hello", " world"]
+        assert executor.get_status("t1").status == TaskState.completed
+        # Callback should be cleared after completion
+        assert "t1" not in executor._progress_callbacks
 
 
 class TestTaskState:
@@ -229,7 +339,13 @@ class TestTaskExecutor:
         mock_agent = MagicMock()
         mock_result = MagicMock()
         mock_result.message = {"content": [{"text": "Done!"}]}
-        mock_agent.invoke_async = AsyncMock(return_value=mock_result)
+        mock_result.stop_reason = "end_turn"
+
+        async def fake_stream(_input):
+            yield {"data": "Done!"}
+            yield {"result": mock_result}
+
+        mock_agent.stream_async = fake_stream
         mock_build.return_value = mock_agent
 
         executor = TaskExecutor(sample_config)
@@ -245,7 +361,12 @@ class TestTaskExecutor:
     @patch("andino.task_executor.build_agent")
     async def test_worker_handles_error(self, mock_build, sample_config):
         mock_agent = MagicMock()
-        mock_agent.invoke_async = AsyncMock(side_effect=RuntimeError("boom"))
+
+        async def boom_stream(_input):
+            raise RuntimeError("boom")
+            yield  # pragma: no cover — make this an async generator
+
+        mock_agent.stream_async = boom_stream
         mock_build.return_value = mock_agent
 
         executor = TaskExecutor(sample_config)

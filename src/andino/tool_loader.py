@@ -28,6 +28,11 @@ def load_tools(tool_refs: str) -> list[Any]:
 
 
 def _import_tool(ref: str) -> Any:
+    if ref.startswith("andino:"):
+        from andino.agent_reference import build_agent_tool
+
+        return build_agent_tool(ref.removeprefix("andino:"))
+
     if ":" in ref:
         module_name, attr = ref.split(":", 1)
     elif "." in ref:

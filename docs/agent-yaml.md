@@ -225,6 +225,31 @@ When enabled and a `session_id` is provided, Andino:
 | `storage_dir` | string | `".sessions"` | Directory where `FileSessionManager` persists conversation state |
 | `max_pool_size` | int | `20` | Max agent instances cached in the AgentPool (LRU eviction) |
 
+## Agent References (multi-agent composition)
+
+Inside `tools:`, the prefix `andino:<name>` makes the calling agent treat another local Andino agent as a tool. The referenced agent is loaded from `$ANDINO_HOME/agents/<name>/agent.yaml`.
+
+```yaml
+# architect/agent.yaml
+tools:
+  - andino:researcher                       # delegate research to local agent
+  - andino:prospector                       # delegate lead lookup
+  - strands_tools.http_request:http_request # regular tools still work
+```
+
+**Semantics:**
+
+- The referenced agent is built **isolated and stateless** — no `FileSessionManager`, fresh in-memory state reset by the SDK between invocations. It does not see the caller's conversation history.
+- HITL approval is governed by the **referenced agent's own `access.yaml`**, not the caller's. Approvals appear in whatever channel the caller is using.
+- Construction is **recursive at build time**. Cycles (`A → B → A`) are detected and raise `AgentReferenceCycleError`; diamond DAGs (`A → B → D` and `A → C → D`) are fine.
+- The referenced agent's `description` field (from its own `agent.yaml`) is used as the tool description shown to the calling LLM. If empty, a default `Delegate to the '<name>' Andino agent.` is used.
+
+**What it does not do:**
+
+- No A2A / network discovery — references are local-process only.
+- No streaming back to the caller — the caller sees the referenced agent's final `AgentResult` as the tool result.
+- No session/memory sharing between caller and referenced agent.
+
 ## Path Resolution
 
 Relative paths for `session.storage_dir` and `workspace.base_dir` are resolved against `ANDINO_HOME` (default: `~/.andino/`), not the current working directory. Absolute paths are used as-is.

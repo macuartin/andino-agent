@@ -33,6 +33,9 @@ class ServerConfig(BaseModel):
 class LimitsConfig(BaseModel):
     max_concurrent_tasks: int = 1
     task_timeout_seconds: int = 600
+    # Transient-failure retries per agent invocation (network blips,
+    # provider throttling). 0 disables. Backport of Singular's autoretry.
+    max_retries: int = 2
 
 
 class WorkspaceConfig(BaseModel):

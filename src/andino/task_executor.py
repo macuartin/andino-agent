@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from collections import OrderedDict
 from collections.abc import Callable
@@ -124,6 +125,28 @@ def _extract_text(result: object) -> str:
     return _strip_thinking(str(result))
 
 
+def _is_transient(exc: Exception) -> bool:
+    """Heuristic for retry-worthy failures.
+
+    Network-level httpx errors and provider throttling retry; anything else
+    (validation, auth, tool bugs) fails fast. Bedrock throttling is detected
+    by string match so botocore stays an optional dependency.
+    """
+    try:
+        import httpx
+        if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError)):
+            return True
+    except ImportError:  # pragma: no cover
+        pass
+    if isinstance(exc, ConnectionError):
+        return True
+    text = f"{type(exc).__name__}: {exc}"
+    return any(
+        marker in text
+        for marker in ("ThrottlingException", "TooManyRequestsException", "ServiceUnavailable", "throttl")
+    )
+
+
 async def _consume_stream(agent: Any, input_data: Any, on_progress: Callable | None) -> Any:
     """Consume an ``agent.stream_async`` iterator and return the final ``AgentResult``.
 
@@ -241,10 +264,31 @@ class TaskExecutor:
             try:
                 input_data: Any = item.prompt
                 while True:
-                    result = await asyncio.wait_for(
-                        _consume_stream(agent, input_data, on_progress),
-                        timeout=self._limits.task_timeout_seconds,
-                    )
+                    # Retry transient failures (network blips, throttling)
+                    # with jittered exponential backoff. The task budget
+                    # (asyncio.wait_for TimeoutError) is NEVER retried — it
+                    # propagates to the timeout branch below.
+                    max_retries = getattr(self._limits, "max_retries", 2)
+                    attempt = 0
+                    while True:
+                        try:
+                            result = await asyncio.wait_for(
+                                _consume_stream(agent, input_data, on_progress),
+                                timeout=self._limits.task_timeout_seconds,
+                            )
+                            break
+                        except TimeoutError:
+                            raise  # task budget exhausted — not transient
+                        except Exception as exc:
+                            if attempt >= max_retries or not _is_transient(exc):
+                                raise
+                            attempt += 1
+                            delay = 2 ** (attempt - 1) + random.random()
+                            logger.warning(
+                                "task_retry attempt=%d/%d delay=%.1fs error=%s",
+                                attempt, max_retries, delay, str(exc)[:200],
+                            )
+                            await asyncio.sleep(delay)
 
                     # Check for interrupt
                     if result.stop_reason == "interrupt" and result.interrupts:

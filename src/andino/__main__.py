@@ -345,6 +345,32 @@ def info(agent: str = typer.Argument(help="Agent name or path to agent.yaml")) -
 
 
 @app.command()
+def usage(
+    agent: str = typer.Argument(help="Agent name or path to agent.yaml"),
+    days: int | None = typer.Option(None, "--days", "-d", help="Only include the last N days"),
+) -> None:
+    """Show token usage + estimated cost for an agent (from usage.jsonl)."""
+    from andino.home import resolve_agent_dir
+    from andino.usage import summarize
+
+    config, _path = _load_config(agent)
+    usage_file = resolve_agent_dir(config.name) / "usage.jsonl"
+    stats = summarize(usage_file, days=days)
+
+    window = f"last {days} days" if days else "all time"
+    console.print(f"\n[bold]{config.name}[/] — usage ({window})\n")
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Key", style="bold")
+    table.add_column("Value", justify="right")
+    table.add_row("Tasks", str(stats["tasks"]))
+    table.add_row("Input tokens", f"{stats['input_tokens']:,}")
+    table.add_row("Output tokens", f"{stats['output_tokens']:,}")
+    table.add_row("Est. cost (USD)", f"${stats['est_cost_usd']:.4f}")
+    console.print(table)
+    console.print(f"\n[dim]{usage_file}[/]\n")
+
+
+@app.command()
 def task(
     agent: str = typer.Argument(help="Agent name or path to agent.yaml"),
     prompt: str = typer.Argument(help="Task prompt"),

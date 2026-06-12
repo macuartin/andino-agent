@@ -44,6 +44,9 @@ class TaskStatus(BaseModel):
     created_at: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
+    # Token accounting (extracted from AgentResult.metrics on completion)
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class _TaskItem:
@@ -187,6 +190,9 @@ class TaskExecutor:
         self._pending_responses: dict[str, asyncio.Future[list[dict]]] = {}
         self._interrupt_callbacks: dict[str, Callable] = {}
         self._progress_callbacks: dict[str, Callable] = {}
+        # Usage JSONL lives next to the agent's other state under ANDINO_HOME.
+        from andino.home import resolve_agent_dir
+        self._usage_file = resolve_agent_dir(config.name) / "usage.jsonl"
 
     def ensure_started(self) -> None:
         """Start worker coroutines. Safe to call multiple times."""
@@ -339,6 +345,29 @@ class TaskExecutor:
                             task_status.structured_output = structured.model_dump()
                         except Exception:
                             logger.exception("structured_output_dump_failed task_id=%s", item.task_id)
+
+                    # Token usage + estimated cost (best-effort, never raises)
+                    from andino.usage import estimate_cost, extract_usage, record_usage
+                    tin, tout = extract_usage(result)
+                    task_status.input_tokens = tin
+                    task_status.output_tokens = tout
+                    if tin or tout:
+                        provider = self._config.model.provider
+                        model_id = self._config.model.model_id
+                        est = estimate_cost(provider, model_id, tin, tout)
+                        logger.info(
+                            "task_usage tokens_in=%d tokens_out=%d est_cost_usd=%s",
+                            tin, tout, f"{est:.6f}" if est is not None else "n/a",
+                        )
+                        record_usage(
+                            self._usage_file,
+                            task_id=item.task_id,
+                            session_id=item.session_id,
+                            provider=provider,
+                            model_id=model_id,
+                            input_tokens=tin,
+                            output_tokens=tout,
+                        )
                     break
 
             except TimeoutError:

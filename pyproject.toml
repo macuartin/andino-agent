@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "andino-agent"
 version = "0.1.0"
 description = "Andino Agent — standalone autonomous agent runtime"
+license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
     "strands-agents>=1.34,<2",

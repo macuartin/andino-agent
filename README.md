@@ -2,7 +2,7 @@
 
 Standalone autonomous agent runtime built on [Strands Agents](https://strandsagents.com/). Define an agent in a YAML file, deploy it as an independent unit with its own HTTP API.
 
-Licensed under [Apache 2.0](LICENSE).
+Licensed under [MIT](LICENSE).
 
 ## Quick Start
 

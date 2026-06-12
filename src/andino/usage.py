@@ -85,7 +85,7 @@ def record_usage(
         }
         with usage_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
-    except Exception:  # noqa: BLE001 — usage logging must never break a task
+    except Exception:
         logger.exception("usage_record_failed task_id=%s", task_id)
 
 

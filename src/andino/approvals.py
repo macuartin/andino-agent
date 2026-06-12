@@ -66,7 +66,7 @@ def save_pending(
         path.write_text(json.dumps(record, indent=2), encoding="utf-8")
         logger.info("approval_persisted task_id=%s tools=%s",
                      task_id, [i.get("name") for i in interrupts])
-    except Exception:  # noqa: BLE001 — persistence must never break the interrupt flow
+    except Exception:
         logger.exception("approval_persist_failed task_id=%s", task_id)
 
 

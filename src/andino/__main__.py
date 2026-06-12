@@ -344,6 +344,63 @@ def info(agent: str = typer.Argument(help="Agent name or path to agent.yaml")) -
     console.print()
 
 
+session_app = typer.Typer(help="Inspect and fork conversation sessions.", no_args_is_help=True)
+app.add_typer(session_app, name="session")
+
+
+@session_app.command(name="list")
+def session_list(
+    agent: str = typer.Argument(help="Agent name or path to agent.yaml"),
+) -> None:
+    """List this agent's sessions with message counts."""
+    from pathlib import Path
+
+    from andino.session_tools import list_sessions
+
+    config, _path = _load_config(agent)
+    storage_dir = Path(config.session.storage_dir)
+    sessions = list_sessions(storage_dir)
+    if not sessions:
+        console.print(f"\n[dim]No sessions under {storage_dir}[/]\n")
+        return
+
+    table = Table(box=None, padding=(0, 2))
+    table.add_column("Session", style="bold")
+    table.add_column("Messages", justify="right")
+    table.add_column("Updated")
+    for s in sessions:
+        table.add_row(s["session_id"], str(s["messages"]), s["updated_at"] or "—")
+    console.print()
+    console.print(table)
+    console.print()
+
+
+@session_app.command(name="fork")
+def session_fork(
+    agent: str = typer.Argument(help="Agent name or path to agent.yaml"),
+    src: str = typer.Argument(help="Source session id"),
+    to: str = typer.Option(..., "--to", help="New session id for the fork"),
+    at: int | None = typer.Option(None, "--at", help="Keep messages with index <= N (default: all)"),
+) -> None:
+    """Fork a conversation: branch a session at message N to explore another path."""
+    from pathlib import Path
+
+    from andino.session_tools import fork_session
+
+    config, _path = _load_config(agent)
+    storage_dir = Path(config.session.storage_dir)
+    try:
+        kept = fork_session(storage_dir, src, to, at_message=at)
+    except ValueError as exc:
+        console.print(f"[red]Error:[/] {exc}")
+        raise typer.Exit(1) from None
+    console.print(
+        f"\n[green]Forked[/] {src} → [bold]{to}[/] "
+        f"({kept} messages{f', trimmed at #{at}' if at is not None else ''})\n"
+        f"Continue it with: [dim]andino task {config.name} \"...\" --session {to}[/]\n"
+    )
+
+
 @app.command()
 def usage(
     agent: str = typer.Argument(help="Agent name or path to agent.yaml"),

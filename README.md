@@ -41,6 +41,10 @@ See [agent.yaml Reference](docs/agent-yaml.md) for all options.
 - **Skills** — On-demand instruction packages for complex tasks
 - **Channels** — Slack Socket Mode with thread-scoped sessions
 - **MCP support** — Stdio, SSE, and Streamable HTTP transports
+- **Resilience** — Transient network/throttling failures retry with backoff; HITL approvals persist to disk and survive restarts (decide orphans via `GET/POST /approvals`)
+- **Cost visibility** — Per-task token usage + estimated cost (`andino usage <agent>`)
+- **Conversation forking** — Branch any session at message N (`andino session fork`)
+- **Traceability** — Every log line carries `[task=<id>]` for end-to-end grep
 
 ## Documentation
 

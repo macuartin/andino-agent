@@ -103,8 +103,18 @@ def build_agent(config: AgentConfig, session_id: str | None = None) -> Agent:
     hooks: list = []
     if access_evaluator and access_evaluator.tools_requiring_approval:
         from andino.hitl import ToolApprovalHook
+        from andino.home import resolve_agent_dir
 
-        hooks.append(ToolApprovalHook(evaluator=access_evaluator))
+        # agent_dir + session_id enable the file-backed replay path: a
+        # decision recorded on an orphaned approval (post-restart) applies
+        # without re-interrupting. See andino.approvals.
+        hooks.append(
+            ToolApprovalHook(
+                evaluator=access_evaluator,
+                agent_dir=resolve_agent_dir(config.name),
+                session_id=session_id,
+            )
+        )
 
     if config.observability.lifecycle_logging:
         from andino.observability import LifecycleHook

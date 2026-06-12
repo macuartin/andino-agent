@@ -98,6 +98,37 @@ def create_app(config: AgentConfig, executor: TaskExecutor | None = None) -> Fas
     async def list_tasks() -> list[TaskStatus]:
         return executor.list_tasks()
 
+    @app.get("/approvals", dependencies=[Depends(auth)])
+    async def list_approvals() -> list[dict]:
+        """Pending HITL approvals from the file store (survives restarts)."""
+        return executor.list_pending_approvals()
+
+    @app.post("/approvals/{task_id}/decide", dependencies=[Depends(auth)])
+    async def decide_approval(task_id: str, body: dict) -> dict:
+        """Decide an ORPHANED approval (post-restart). Live interrupts use /respond.
+
+        Body: {"decision": "approved" | "denied"}. Re-submits the task; the
+        hook applies the stored decision on replay without re-asking.
+        """
+        decision = body.get("decision", "")
+        if decision not in ("approved", "denied"):
+            raise HTTPException(status_code=400, detail="decision must be approved|denied")
+        new_status = await executor.decide_orphaned(task_id, decision)
+        if new_status is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Approval unknown, already decided, or still live in-process "
+                    "(use POST /task/{task_id}/respond for live interrupts)"
+                ),
+            )
+        return {
+            "task_id": task_id,
+            "decision": decision,
+            "replay_task_id": new_status.task_id,
+            "replay_status": new_status.status,
+        }
+
     @app.get("/health")
     async def health() -> dict:
         return {

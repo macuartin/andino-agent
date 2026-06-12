@@ -190,9 +190,10 @@ class TaskExecutor:
         self._pending_responses: dict[str, asyncio.Future[list[dict]]] = {}
         self._interrupt_callbacks: dict[str, Callable] = {}
         self._progress_callbacks: dict[str, Callable] = {}
-        # Usage JSONL lives next to the agent's other state under ANDINO_HOME.
+        # Usage JSONL + approvals live next to the agent's other state.
         from andino.home import resolve_agent_dir
-        self._usage_file = resolve_agent_dir(config.name) / "usage.jsonl"
+        self._agent_dir = resolve_agent_dir(config.name)
+        self._usage_file = self._agent_dir / "usage.jsonl"
 
     def ensure_started(self) -> None:
         """Start worker coroutines. Safe to call multiple times."""
@@ -313,6 +314,17 @@ class TaskExecutor:
                             [i["name"] for i in task_status.interrupts],
                         )
 
+                        # Persist the pending approval so it survives a
+                        # process restart (file-backed replay — see approvals).
+                        from andino import approvals as _approvals
+                        _approvals.save_pending(
+                            self._agent_dir,
+                            task_id=item.task_id,
+                            session_id=item.session_id,
+                            prompt=item.prompt,
+                            interrupts=task_status.interrupts,
+                        )
+
                         # Notify channel callback if registered
                         cb = self._interrupt_callbacks.pop(item.task_id, None)
                         if cb is not None:
@@ -330,7 +342,12 @@ class TaskExecutor:
                         finally:
                             self._pending_responses.pop(item.task_id, None)
 
-                        # Resume agent with interrupt responses
+                        # Resume agent with interrupt responses. The pending
+                        # approval record is no longer needed (resolved
+                        # in-process), discard it.
+                        from andino import approvals as _approvals
+                        _approvals.discard(self._agent_dir, item.task_id)
+
                         input_data = responses
                         task_status.status = TaskState.running
                         task_status.interrupts = None
@@ -398,6 +415,46 @@ class TaskExecutor:
             return False
         future.set_result(responses)
         return True
+
+    async def decide_orphaned(self, task_id: str, decision: str) -> TaskStatus | None:
+        """Decide an approval whose in-memory future is gone (post-restart).
+
+        Singular's replay pattern on files:
+        1. Record the decision in the approval store.
+        2. Re-submit the task (same prompt + session, fresh task id).
+        3. On replay, the ToolApprovalHook sees the stored decision via
+           ``lookup_decision`` and proceeds / cancels without re-asking.
+
+        Returns the NEW task's status, or None if the approval is unknown /
+        already decided / still live in-process (use respond_to_interrupt
+        for live ones).
+        """
+        from andino import approvals as _approvals
+
+        # Live interrupt? Then this API is the wrong door.
+        if task_id in self._pending_responses:
+            return None
+
+        record = _approvals.decide(self._agent_dir, task_id, decision)
+        if record is None:
+            return None
+
+        new_task_id = f"{task_id}-replay"
+        logger.info(
+            "approval_replay task_id=%s decision=%s new_task_id=%s",
+            task_id, decision, new_task_id,
+        )
+        return await self.submit(
+            new_task_id,
+            record["prompt"],
+            record.get("session_id"),
+        )
+
+    def list_pending_approvals(self) -> list[dict]:
+        """Pending approvals from the file store (includes orphaned ones)."""
+        from andino import approvals as _approvals
+
+        return _approvals.load_pending(self._agent_dir)
 
     def on_interrupt(self, task_id: str, callback: Callable) -> None:
         """Register an async callback to invoke when a task is interrupted."""

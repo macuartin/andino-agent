@@ -26,7 +26,7 @@ Each Andino agent runs as an independent unit: one process, one HTTP server, opt
 │                     │                                     │
 │         AgentPool.get(session_id)                         │
 │                     │                                     │
-│     await agent.invoke_async(prompt)                      │
+│     await _consume_stream(agent, prompt)  # iterates stream_async                      │
 │         + asyncio.wait_for(timeout)                       │
 │                     │                                     │
 │          ┌──── interrupt? ────┐                           │
@@ -86,7 +86,7 @@ andino run researcher
    │   ├── session_id=None → shared stateless agent
    │   └── session_id="x"  → dedicated agent with FileSessionManager
    │                          (created on first use, cached in LRU pool)
-   └── await agent.invoke_async(prompt)
+   └── await _consume_stream(agent, prompt)  # iterates stream_async
        wrapped in asyncio.wait_for(timeout)
 
 3. Execution loop (may repeat on interrupts)
@@ -94,7 +94,7 @@ andino run researcher
    │   ├── Notify channel callback (Slack buttons) if registered
    │   ├── Create asyncio.Future, wait for human response
    │   ├── POST /respond delivers response → future.set_result()
-   │   └── Resume agent with interrupt responses → back to invoke_async
+   │   └── Resume agent with interrupt responses → back to stream_async
    ├── Success → status=completed, result=text
    ├── Timeout → status=timeout, error=message
    └── Error   → status=failed, error=message
@@ -105,7 +105,7 @@ andino run researcher
 
 The SDK uses **native async** throughout. No thread pools.
 
-- **Strands `invoke_async()`** is a true async coroutine that streams LLM responses without blocking the event loop
+- **Strands `stream_async()`** is a true async generator that yields LLM deltas without blocking the event loop
 - **Worker count** equals `max_concurrent_tasks` — each worker is an `asyncio.Task` that awaits the queue
 - **Queue backpressure**: queue size = `max_concurrent_tasks * 2`. If full, new tasks get 429
 - **Session locks**: one `asyncio.Lock` per `session_id` prevents concurrent writes to the same conversation

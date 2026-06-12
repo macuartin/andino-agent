@@ -44,11 +44,4 @@ def _import_tool(ref: str) -> Any:
     if not hasattr(module, attr):
         raise ValueError(f"Attribute '{attr}' not found in module '{module_name}'")
 
-    obj = getattr(module, attr)
-
-    # Old-style tools (plain functions with module-level TOOL_SPEC) must be
-    # passed as the module so the SDK can discover the spec via load_tools_from_module.
-    if callable(obj) and not hasattr(obj, "tool_name") and hasattr(module, "TOOL_SPEC"):
-        return module
-
-    return obj
+    return getattr(module, attr)

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from andino.agent_builder import build_agent
 from andino.config import AgentConfig
+from andino.log_context import bind_task, clear_task
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,10 @@ class TaskExecutor:
                 self._queue.task_done()
                 continue
 
+            # Bind the task id to the logging context — every record emitted
+            # from here until teardown carries [task=<id>] (see log_context).
+            bind_task(item.task_id)
+
             task_status.status = TaskState.running
             task_status.started_at = datetime.now(UTC).isoformat()
 
@@ -308,6 +313,7 @@ class TaskExecutor:
                 if event is not None:
                     event.set()
                 self._queue.task_done()
+                clear_task()
 
     def respond_to_interrupt(self, task_id: str, responses: list[dict]) -> bool:
         """Deliver human responses to a pending interrupt.

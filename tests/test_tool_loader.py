@@ -65,7 +65,12 @@ class TestLoadTools:
             with pytest.raises(ValueError, match="not found in module"):
                 load_tools("real_mod:missing_attr")
 
-    def test_old_style_tool_returns_module(self):
+    def test_legacy_tool_spec_module_no_longer_special_cased(self):
+        """Pre-Strands-1.x TOOL_SPEC modules get the attribute, not the module.
+
+        The legacy branch that returned the whole module was dropped — modern
+        Strands discovers tools via the @tool decorator metadata only.
+        """
         mock_module = types.ModuleType("old_mod")
         mock_module.TOOL_SPEC = {"name": "old_tool"}
 
@@ -76,7 +81,7 @@ class TestLoadTools:
 
         with patch("andino.tool_loader.importlib.import_module", return_value=mock_module):
             tools = load_tools("old_mod:old_tool")
-        assert tools[0] is mock_module
+        assert tools[0] is plain_func
 
     def test_whitespace_in_refs(self):
         mock_module = types.ModuleType("mod")

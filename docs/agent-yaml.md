@@ -37,9 +37,7 @@ server:
   port: 8103
   api_key: ${ANDINO_API_KEY}
 
-hitl:
-  require_approval:
-    - shell
+access: access.yaml   # tool authorization + HITL approval rules
 
 skills:
   - ./skills/
@@ -138,9 +136,12 @@ server:
   api_key: ${ANDINO_API_KEY}
 ```
 
-### `hitl`
+### `access`
 
-Human-in-the-loop tool approval. See [HITL Guide](hitl.md) for configuration, workflow, and Slack integration.
+Path to an `access.yaml` file defining tool authorization groups and rules
+(including `require_approval` for HITL gating). Replaces the legacy
+`hitl.require_approval` key. See [HITL Guide](hitl.md) for configuration,
+workflow, and Slack integration.
 
 ### `limits`
 

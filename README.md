@@ -33,7 +33,7 @@ See [agent.yaml Reference](docs/agent-yaml.md) for all options.
 
 ## Features
 
-- **Async-native** — No threads, uses Strands `invoke_async()` with `asyncio`
+- **Async-native** — No threads, consumes Strands `stream_async()` with `asyncio`
 - **Session persistence** — Conversation state via `FileSessionManager`
 - **Workspace isolation** — Per-session directories for artifacts
 - **Human-in-the-loop** — Tool approval via HTTP or Slack interactive buttons

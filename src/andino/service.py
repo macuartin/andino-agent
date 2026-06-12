@@ -24,16 +24,26 @@ class _HealthCheckFilter(logging.Filter):
 
 
 def configure_logging(level: str = "info", log_file: str | None = None) -> None:
-    """Configure the root logger with console and optional file output."""
+    """Configure the root logger with console and optional file output.
+
+    Every record carries ``task_id`` (via :class:`andino.log_context.TaskIdFilter`)
+    so one task's lines are greppable end-to-end: ``grep "task=<id>"``.
+    """
+    from andino.log_context import TaskIdFilter
+
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     if log_file:
         from logging.handlers import RotatingFileHandler
 
         handlers.append(RotatingFileHandler(log_file, maxBytes=50_000_000, backupCount=3))
 
+    task_filter = TaskIdFilter()
+    for handler in handlers:
+        handler.addFilter(task_filter)
+
     logging.basicConfig(
         level=getattr(logging, level.upper()),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        format="%(asctime)s %(levelname)s %(name)s [task=%(task_id)s] %(message)s",
         handlers=handlers,
         force=True,
     )
